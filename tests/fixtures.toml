@@ -60,3 +60,41 @@ stem = "non_atomic"
 pest = "exact_repeat.pest"
 entry = "main"
 stem = "exact_repeat"
+
+# Website demo examples (generated into web/src/examples.js).
+# `stem` must match a [[fixture]] entry; `key` is the stable web picker id.
+
+[[web_example]]
+key = "simple"
+stem = "simple"
+label = "Key/value config"
+description = "Comments, whitespace, identifiers, and SOI/EOI."
+samples = ["a=1,b=2", "x=9 // comment\n,y=8"]
+
+[[web_example]]
+key = "calc"
+stem = "calc"
+label = "Calculator"
+description = "Arithmetic with precedence and recursion."
+samples = ["1 + 2 * 3", "(1 + 2) * 3"]
+
+[[web_example]]
+key = "ranges"
+stem = "ranges"
+label = "Hex color"
+description = "Character ranges like '0'..'9' and bounded repetition."
+samples = ["#ff00aa", "#AABBCC"]
+
+[[web_example]]
+key = "case_insensitive"
+stem = "case_insensitive"
+label = "SQL-ish query"
+description = "Case-insensitive string literals with ^\"select\"."
+samples = ["select from foo", "SELECT FROM bar"]
+
+[[web_example]]
+key = "lookahead"
+stem = "lookahead"
+label = "Lookahead sentinel"
+description = "Negative lookahead !\"end\" before a closing sentinel."
+samples = ["hello world end", "foo_bar end"]

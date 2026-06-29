@@ -4,7 +4,7 @@ import {
   fitEditors,
   setEditorContent,
 } from "./editors.js";
-import { EXAMPLES, DEFAULT_PEST } from "./examples.js";
+import { EXAMPLES, DEFAULT_PEST, DEFAULT_EXAMPLE_KEY } from "./examples.js";
 import {
   copyText,
   downloadGrammarRs,
@@ -25,7 +25,6 @@ import {
   setPestFilename,
   setStatus,
   setParseDiagnostic,
-  setExampleCaption,
   parseDiagnosticExtensions,
 } from "./ui.js";
 
@@ -76,11 +75,59 @@ let lastRawOutput = "";
 let lastErrors = [];
 let lastConvertMs = null;
 let ruleNames = [];
+let activeExampleKey = "";
+
+function findMatchingExample(pest, entryRule) {
+  const entry = (entryRule ?? "").trim();
+  for (const [key, ex] of Object.entries(EXAMPLES)) {
+    if (ex.pest === pest && ex.entryRule === entry) {
+      return key;
+    }
+  }
+  return "";
+}
+
+function populateExamplesSelect() {
+  if (!examplesSelect) return;
+  examplesSelect.innerHTML = "";
+  const custom = document.createElement("option");
+  custom.value = "";
+  custom.textContent = "Custom grammar…";
+  examplesSelect.appendChild(custom);
+  for (const [key, ex] of Object.entries(EXAMPLES)) {
+    const opt = document.createElement("option");
+    opt.value = key;
+    opt.textContent = ex.label;
+    examplesSelect.appendChild(opt);
+  }
+}
+
+function setActiveExample(key) {
+  activeExampleKey = key;
+  if (examplesSelect) {
+    examplesSelect.value = key;
+  }
+}
+
+function clearActiveExample() {
+  activeExampleKey = "";
+  if (examplesSelect) {
+    examplesSelect.value = "";
+  }
+}
 
 const shared = decodeShareState(window.location.hash);
 const savedPest = shared?.pest ?? initialDoc(STORAGE_KEY_PEST, DEFAULT_PEST);
 const savedEntry =
-  shared?.entryRule ?? loadSaved(STORAGE_KEY_ENTRY) ?? EXAMPLES.simple.entryRule;
+  shared?.entryRule ??
+  loadSaved(STORAGE_KEY_ENTRY) ??
+  EXAMPLES[DEFAULT_EXAMPLE_KEY].entryRule;
+
+activeExampleKey = findMatchingExample(savedPest, savedEntry);
+populateExamplesSelect();
+if (examplesSelect && activeExampleKey) {
+  examplesSelect.value = activeExampleKey;
+}
 
 if (entryRuleEl) {
   entryRuleEl.value = savedEntry;
@@ -212,6 +259,12 @@ const pestEditor = createPestEditor(
   savedPest,
   (text) => {
     save(STORAGE_KEY_PEST, text);
+    if (activeExampleKey) {
+      const ex = EXAMPLES[activeExampleKey];
+      if (!ex || text !== ex.pest) {
+        clearActiveExample();
+      }
+    }
     scheduleConvert();
   },
   parseDiagnosticExtensions(() => getPestSource()),
@@ -221,6 +274,12 @@ const rustEditor = createRustEditor(document.getElementById("rust-editor"));
 
 entryRuleEl?.addEventListener("input", () => {
   save(STORAGE_KEY_ENTRY, entryRuleEl.value);
+  if (activeExampleKey) {
+    const ex = EXAMPLES[activeExampleKey];
+    if (!ex || ex.entryRule !== getEntryRule().trim()) {
+      clearActiveExample();
+    }
+  }
   updateEntryRuleHint(getEntryRule(), ruleNames);
   scheduleConvert();
 });
@@ -237,8 +296,12 @@ emitTraceEl?.addEventListener("change", () => {
 
 examplesSelect?.addEventListener("change", () => {
   const key = examplesSelect.value;
-  if (!key || !EXAMPLES[key]) return;
+  if (!key || !EXAMPLES[key]) {
+    clearActiveExample();
+    return;
+  }
   const ex = EXAMPLES[key];
+  setActiveExample(key);
   setEditorContent(pestEditor, ex.pest);
   save(STORAGE_KEY_PEST, ex.pest);
   if (entryRuleEl) {
@@ -246,8 +309,6 @@ examplesSelect?.addEventListener("change", () => {
     save(STORAGE_KEY_ENTRY, ex.entryRule);
   }
   setPestFilename(null);
-  setExampleCaption(ex.description ? `Example: ${ex.label} — ${ex.description}` : null);
-  examplesSelect.value = "";
   scheduleConvert();
 });
 
@@ -295,7 +356,7 @@ initFileImport({
     setEditorContent(pestEditor, text);
     save(STORAGE_KEY_PEST, text);
     setPestFilename(filename);
-    setExampleCaption(null);
+    clearActiveExample();
     scheduleConvert();
   },
 });

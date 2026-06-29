@@ -28,3 +28,7 @@ toml = "0.8"
 [[bin]]
 name = "update-test-fixtures"
 path = "src/bin/update_test_fixtures.rs"
+
+[[bin]]
+name = "generate-web-examples"
+path = "src/bin/generate_web_examples.rs"

@@ -75,7 +75,7 @@
     }
 
     .toolbar select {
-      min-width: 7rem;
+      min-width: 11rem;
     }
 
     .entry-rule-wrap {
@@ -257,19 +257,6 @@
       align-items: center;
       gap: 0.5rem;
       margin-top: 0.6rem;
-    }
-
-    #example-caption {
-      padding: 0.35rem 1rem;
-      background: #2a2d2e;
-      border-bottom: 1px solid #333;
-      font-size: 0.75rem;
-      color: #dcdcaa;
-      flex-shrink: 0;
-    }
-
-    #example-caption[hidden] {
-      display: none;
     }
 
     .field-hint {
@@ -608,11 +595,7 @@
     <div class="toolbar">
       <label>
         Example
-        <select id="examples-select">
-          <option value="">Try an example…</option>
-          <option value="simple">Simple — key/value list</option>
-          <option value="calc">Calculator — precedence</option>
-          <option value="optional">Optional — trailing semicolon</option>
+        <select id="examples-select" aria-label="Load example grammar">
         </select>
       </label>
 
@@ -676,8 +659,6 @@
       <button type="button" class="btn btn-sm" id="intro-tour-btn">Show tour</button>
     </div>
   </section>
-
-  <div id="example-caption" hidden></div>
 
   <div class="panes" id="panes">
     <div class="pane" id="pest-pane">

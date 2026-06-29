@@ -232,18 +232,6 @@ function initTour() {
   }
 }
 
-export function setExampleCaption(text) {
-  const el = document.getElementById("example-caption");
-  if (!el) return;
-  if (text) {
-    el.textContent = text;
-    el.hidden = false;
-  } else {
-    el.textContent = "";
-    el.hidden = true;
-  }
-}
-
 export function initPaneResizer(onResize) {
   const resizer = document.getElementById("pane-resizer");
   const pestPane = document.getElementById("pest-pane");
