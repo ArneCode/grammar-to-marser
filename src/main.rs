@@ -34,6 +34,7 @@ fn main() {
         &ConvertOptions {
             entry_rule,
             function_name: "grammar".to_string(),
+            ..Default::default()
         },
     ) {
         Ok(code) => {

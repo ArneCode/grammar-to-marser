@@ -68,10 +68,24 @@ pub struct Expression {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct GrammarRule {
-    pub name: String,
-    pub modifier: Option<Modifier>,
-    pub expression: Expression,
+pub enum GrammarRule {
+    Valid {
+        name: String,
+        modifier: Option<Modifier>,
+        expression: Expression,
+    },
+    Invalid {
+        name: String,
+        text: String,
+    },
+}
+
+impl GrammarRule {
+    pub fn name(&self) -> &str {
+        match self {
+            Self::Valid { name, .. } | Self::Invalid { name, .. } => name,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]

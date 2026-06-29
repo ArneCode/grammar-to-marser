@@ -1,0 +1,24 @@
+{
+  "name": "pest-to-marser-web",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "esbuild src/main.js --bundle --outfile=editor.js --format=esm"
+  },
+  "dependencies": {
+    "@babel/runtime": "^7.28.4",
+    "@codemirror/lang-rust": "^6.0.2",
+    "@codemirror/language": "^6.11.3",
+    "@codemirror/lint": "^6.8.5",
+    "@codemirror/state": "^6.5.2",
+    "@codemirror/view": "^6.38.6",
+    "@lezer/highlight": "^1.2.1",
+    "@uiw/codemirror-theme-vscode": "^4.25.3",
+    "codemirror": "^6.0.2",
+    "jszip": "^3.10.1",
+    "lz-string": "^1.5.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.12"
+  }
+}

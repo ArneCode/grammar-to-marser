@@ -1,11 +1,16 @@
 use marser::capture;
 use marser::matcher::{
-    AnyToken, Matcher, MatcherCombinator, many, negative_lookahead, one_or_more,
-    optional, positive_lookahead, start_of_input, end_of_input,
+    Matcher,
+    many,
+    one_or_more,
+    optional,
 };
 use marser::one_of::one_of;
 use marser::parser::{
-    DeferredWeak, Parser, ParserCombinator, recursive};
+    Parser,
+    ParserCombinator,
+    recursive,
+};
 
 // Pest inserts implicit whitespace between repetitions, but not before the
 // first item. This keeps `X*` equivalent to Pest while avoiding duplicated
@@ -22,45 +27,50 @@ where
 }
 
 pub fn grammar<'src>() -> impl Parser<'src, &'src str, Output = ()> + Clone {
-    let number = capture!(
-        one_or_more('0'..='9') => ()
-    ).erase_types();
+    let ASCII_DIGIT = '0'..='9';
 
+    // WHITESPACE = _{ " " | "\t" }
     let WHITESPACE = capture!(
         one_of((' ', '\t')) => ()
+    ).erase_types();
+
+    // number = @{ ASCII_DIGIT+ }
+    let number = capture!(
+        one_or_more(ASCII_DIGIT.clone()) => ()
     ).erase_types();
 
     let ws = many(
         WHITESPACE.clone().ignore_result()
     );
 
-    let expr = recursive(|expr_weak| {
+    // This rule cluster is cyclic: some rules refer back to others in the same
+    // group (directly or indirectly). marser's `recursive` breaks that cycle
+    // by giving the closure a deferred handle to clone inside the body. See:
+    // https://docs.rs/marser/latest/marser/parser/deferred/fn.recursive.html
+    let expr = recursive(|expr| {
+        // factor = { number | "(" ~ expr ~ ")" }
         let factor = capture!(
             one_of((
-                number.clone().ignore_result(),
-                ('(', ws.clone(), expr_weak.clone().ignore_result(), ws.clone(), ')'),
+                bind!(number.clone(), ?number_val),
+                ('(', ws.clone(), bind!(expr.clone(), ?expr_val), ws.clone(), ')'),
             )) => ()
         ).erase_types();
 
+        // term = { factor ~ (("*" | "/") ~ factor)* }
         let term = capture!(
             (
-                factor.clone().ignore_result(),
+                bind!(factor.clone(), *factor_val),
                 ws.clone(),
-                repeat_ws(
-                    (one_of(('*', '/')), ws.clone(), factor.clone().ignore_result()),
-                    ws.clone(),
-                ),
+                repeat_ws((one_of(('*', '/')), ws.clone(), bind!(factor.clone(), *factor_val)), ws.clone()),
             ) => ()
         ).erase_types();
 
+        // expr = { term ~ (("+" | "-") ~ term)* }
         capture!(
             (
-                term.clone().ignore_result(),
+                bind!(term.clone(), *term_val),
                 ws.clone(),
-                repeat_ws(
-                    (one_of(('+', '-')), ws.clone(), term.clone().ignore_result()),
-                    ws.clone(),
-                ),
+                repeat_ws((one_of(('+', '-')), ws.clone(), bind!(term.clone(), *term_val)), ws.clone()),
             ) => ()
         ).erase_types()
     });

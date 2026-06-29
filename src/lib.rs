@@ -13,6 +13,7 @@ mod validate;
 pub use ast::*;
 pub use convert::{
     ConvertOptions, convert_pest_grammar, convert_pest_source, convert_with_warnings,
+    list_pest_rules,
 };
 pub use error::{ConvertError, ConvertResult};
 pub use expr::{Builtin, Expr, MatchingContext, SymKey};

@@ -2,3 +2,5 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 wasm-pack build --target web --out-dir pkg
+npm install
+npm run build

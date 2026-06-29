@@ -1,8 +1,9 @@
 use marser::capture;
 use marser::{
+    label::WithLabel,
     matcher::{
-        AnyToken, Matcher, MatcherCombinator, end_of_input, many, negative_lookahead, one_or_more,
-        optional, start_of_input,
+        AnyToken, Matcher, MatcherCombinator, commit_on, end_of_input, many, negative_lookahead,
+        one_or_more, optional, start_of_input,
     },
     one_of::one_of,
     parser::{DeferredWeak, Parser, ParserCombinator, recursive},
@@ -17,12 +18,16 @@ fn newline<'src, MRes>() -> impl Matcher<'src, &'src str, MRes> {
 fn block_comment<'src>() -> impl Parser<'src, &'src str, Output = ()> + Clone {
     recursive(|bc: DeferredWeak<'_, '_, &str, ()>| {
         capture!((
-            "/*",
-            many(one_of((
-                bc.clone().ignore_result(),
-                (negative_lookahead("*/"), AnyToken),
-            ))),
-            "*/",
+            commit_on(
+                "/*",
+                (
+                    many(one_of((
+                        bc.clone().ignore_result(),
+                        (negative_lookahead("*/"), AnyToken),
+                    ))),
+                    "*/".try_insert_if_missing("missing block comment closing '*/'"),
+                ),
+            ),
         ) => ())
     })
     .erase_types()
@@ -93,31 +98,34 @@ fn decode_unicode(hex: &str) -> char {
 
 fn escape<'src>() -> impl Parser<'src, &'src str, Output = char> + Clone {
     capture!((
-        '\\',
-        bind!(
-            one_of((
-                '"'.to('"'),
-                '\\'.to('\\'),
-                'r'.to('\r'),
-                'n'.to('\n'),
-                't'.to('\t'),
-                '0'.to('\0'),
-                '\''.to('\''),
-                capture!((
-                    'x',
-                    bind_slice!((
-                        hex_chars(),
-                        hex_chars(),
-                    ), hex as &str),
-                ) => decode_hex_byte(hex)),
-                capture!((
-                    'u',
-                    '{',
-                    bind_slice!(one_or_more(hex_chars()), hex as &str),
-                    '}',
-                ) => decode_unicode(hex)),
-            )),
-            escaped
+        commit_on(
+            '\\',
+            bind!(
+                one_of((
+                    '"'.to('"'),
+                    '\\'.to('\\'),
+                    'r'.to('\r'),
+                    'n'.to('\n'),
+                    't'.to('\t'),
+                    '0'.to('\0'),
+                    '\''.to('\''),
+                    capture!((
+                        'x',
+                        bind_slice!((
+                            hex_chars(),
+                            hex_chars(),
+                        ), hex as &str),
+                    ) => decode_hex_byte(hex)),
+                    capture!((
+                        'u',
+                        '{',
+                        bind_slice!(one_or_more(hex_chars()), hex as &str),
+                        '}',
+                    ) => decode_unicode(hex)),
+                ))
+                .with_label("escape sequence (n, t, r, 0, \\, ', \", \\xNN, \\u{..})"),
+                escaped
+            ),
         ),
     ) => escaped)
     .erase_types()
@@ -154,10 +162,14 @@ fn inner_str<'src>() -> impl Parser<'src, &'src str, Output = String> + Clone {
 
 fn string<'src>() -> impl Parser<'src, &'src str, Output = String> + Clone {
     capture!((
-        '"',
-        bind!(inner_str(), content),
-        '"',
-        ws(),
+        commit_on(
+            '"',
+            (
+                bind!(inner_str(), content),
+                '"'.try_insert_if_missing("missing closing '\"'"),
+                ws(),
+            ),
+        ),
     ) => content)
 }
 
@@ -167,10 +179,14 @@ fn any_char<'src>() -> impl Parser<'src, &'src str, Output = char> + Clone {
 
 fn character<'src>() -> impl Parser<'src, &'src str, Output = char> + Clone {
     capture!((
-        '\'',
-        bind!(one_of((escape(), any_char())), ch),
-        '\'',
-        ws(),
+        commit_on(
+            '\'',
+            (
+                bind!(one_of((escape(), any_char())), ch),
+                '\''.try_insert_if_missing("missing closing '\''"),
+                ws(),
+            ),
+        ),
     ) => ch)
 }
 
@@ -227,56 +243,45 @@ fn infix_op<'src>() -> impl Parser<'src, &'src str, Output = InfixOp> + Clone {
     ))
 }
 
-fn repeat_exact<'src>() -> impl Parser<'src, &'src str, Output = PostfixOp> + Clone {
+fn brace_repetition<'src>() -> impl Parser<'src, &'src str, Output = PostfixOp> + Clone {
     capture!((
-        '{',
-        ws(),
-        bind!(number(), n),
-        ws(),
-        '}',
-        ws(),
-    ) => PostfixOp::RepeatExact(n))
-}
-
-fn repeat_min<'src>() -> impl Parser<'src, &'src str, Output = PostfixOp> + Clone {
-    capture!((
-        '{',
-        ws(),
-        bind!(number(), n),
-        ws(),
-        ',',
-        ws(),
-        '}',
-        ws(),
-    ) => PostfixOp::RepeatMin(n))
-}
-
-fn repeat_max<'src>() -> impl Parser<'src, &'src str, Output = PostfixOp> + Clone {
-    capture!((
-        '{',
-        ws(),
-        ',',
-        ws(),
-        bind!(number(), n),
-        ws(),
-        '}',
-        ws(),
-    ) => PostfixOp::RepeatMax(n))
-}
-
-fn repeat_min_max<'src>() -> impl Parser<'src, &'src str, Output = PostfixOp> + Clone {
-    capture!((
-        '{',
-        ws(),
-        bind!(number(), min),
-        ws(),
-        ',',
-        ws(),
-        bind!(number(), max),
-        ws(),
-        '}',
-        ws(),
-    ) => PostfixOp::RepeatMinMax(min, max))
+        commit_on(
+            '{',
+            (
+                ws(),
+                bind!(
+                    one_of((
+                        capture!((
+                            bind!(number(), min),
+                            ws(),
+                            ',',
+                            ws(),
+                            bind!(number(), max),
+                        ) => PostfixOp::RepeatMinMax(min, max)),
+                        capture!((
+                            bind!(number(), n),
+                            ws(),
+                            ',',
+                        ) => PostfixOp::RepeatMin(n)),
+                        capture!((
+                            ',',
+                            ws(),
+                            bind!(number(), n),
+                        ) => PostfixOp::RepeatMax(n)),
+                        capture!((
+                            bind!(number(), n),
+                        ) => PostfixOp::RepeatExact(n)),
+                    ))
+                    .with_label("repetition count"),
+                    op
+                ),
+                ws(),
+                '}'.try_insert_if_missing("missing '}'"),
+                ws(),
+            ),
+        ),
+    ) => op)
+    .erase_types()
 }
 
 fn postfix_op<'src>() -> impl Parser<'src, &'src str, Output = PostfixOp> + Clone {
@@ -284,10 +289,7 @@ fn postfix_op<'src>() -> impl Parser<'src, &'src str, Output = PostfixOp> + Clon
         '?'.map_output(|_| PostfixOp::Optional),
         '*'.map_output(|_| PostfixOp::Repeat),
         '+'.map_output(|_| PostfixOp::RepeatOnce),
-        repeat_min_max(),
-        repeat_min(),
-        repeat_max(),
-        repeat_exact(),
+        brace_repetition(),
     ))
     .erase_types()
 }
@@ -320,40 +322,43 @@ fn line_doc<'src>() -> impl Parser<'src, &'src str, Output = GrammarItem> + Clon
 fn expression_grammar<'src>() -> impl Parser<'src, &'src str, Output = Expression> + Clone {
     recursive(|expr_weak: DeferredWeak<'_, '_, &str, Expression>| {
         let peek_slice = capture!((
-            "PEEK",
-            ws(),
-            '[',
-            ws(),
-            optional(bind!(integer(), ?start)),
-            ws(),
-            "..",
-            ws(),
-            optional(bind!(integer(), ?end)),
-            ws(),
-            ']',
-            ws(),
+            commit_on(
+                ("PEEK", ws(), '[', ws()),
+                (
+                    optional(bind!(integer(), ?start)),
+                    ws(),
+                    "..",
+                    ws(),
+                    optional(bind!(integer(), ?end)),
+                    ws(),
+                    ']'.try_insert_if_missing("missing ']'"),
+                    ws(),
+                ),
+            ),
         ) => Terminal::PeekSlice { start, end });
 
         let push_literal = capture!((
-            "PUSH_LITERAL",
-            ws(),
-            '(',
-            ws(),
-            bind!(string(), lit),
-            ws(),
-            ')',
-            ws(),
+            commit_on(
+                ("PUSH_LITERAL", ws(), '(', ws()),
+                (
+                    bind!(string(), lit),
+                    ws(),
+                    ')'.try_insert_if_missing("missing ')'"),
+                    ws(),
+                ),
+            ),
         ) => Terminal::PushLiteral(lit));
 
         let push = capture!((
-            "PUSH",
-            ws(),
-            '(',
-            ws(),
-            bind!(expr_weak.clone(), inner),
-            ws(),
-            ')',
-            ws(),
+            commit_on(
+                ("PUSH", ws(), '(', ws()),
+                (
+                    bind!(expr_weak.clone(), inner),
+                    ws(),
+                    ')'.try_insert_if_missing("missing ')'"),
+                    ws(),
+                ),
+            ),
         ) => Terminal::Push(Box::new(inner)));
 
         let insensitive_string = capture!((
@@ -381,12 +386,15 @@ fn expression_grammar<'src>() -> impl Parser<'src, &'src str, Output = Expressio
 
         let node = one_of((
             capture!((
-                '(',
-                ws(),
-                bind!(expr_weak.clone(), inner),
-                ws(),
-                ')',
-                ws(),
+                commit_on(
+                    ('(', ws()),
+                    (
+                        bind!(expr_weak.clone(), inner),
+                        ws(),
+                        ')'.try_insert_if_missing("missing ')'"),
+                        ws(),
+                    ),
+                ),
             ) => Node::Grouped(Box::new(inner))),
             terminal,
         ));
@@ -424,25 +432,74 @@ fn expression_grammar<'src>() -> impl Parser<'src, &'src str, Output = Expressio
     .erase_types()
 }
 
-fn grammar_rule<'src>() -> impl Parser<'src, &'src str, Output = GrammarItem> + Clone {
-    let expression = expression_grammar();
+fn next_rule_start<'src, MRes>() -> impl Matcher<'src, &'src str, MRes> + Clone {
+    one_of((
+        end_of_input(),
+        (
+            '}',
+            ws(),
+            identifier().ignore_result(),
+            ws(),
+            '=',
+        ),
+        (
+            newline(),
+            ws(),
+            identifier().ignore_result(),
+            ws(),
+            '=',
+        ),
+    ))
+}
+
+fn recover_grammar_rule<'src>() -> impl Parser<'src, &'src str, Output = GrammarItem> + Clone {
     capture!((
         bind!(identifier(), name),
+        ws(),
         '=',
         ws(),
-        optional((bind!(parse_modifier(), ?rule_mod), ws())),
-        '{',
+        bind_slice!(
+            many((
+                negative_lookahead(next_rule_start()),
+                AnyToken,
+            )),
+            text as &'src str
+        ),
         ws(),
-        bind!(expression, expr),
-        ws(),
-        '}',
-        ws(),
-    ) => GrammarItem::Rule(GrammarRule {
+    ) => GrammarItem::Rule(GrammarRule::Invalid {
+        name,
+        text: text.to_string(),
+    }))
+    .erase_types()
+}
+
+fn grammar_rule<'src>() -> impl Parser<'src, &'src str, Output = GrammarItem> + Clone {
+    let expression = expression_grammar();
+    let rule = capture!((
+        commit_on(
+            (bind!(identifier(), name), ws(), '='),
+            (
+                ws(),
+                optional((bind!(parse_modifier(), ?rule_mod), ws())),
+                commit_on(
+                    ('{', ws()),
+                    (
+                        bind!(expression.with_label("expression"), expr),
+                        ws(),
+                        '}'.try_insert_if_missing("missing '}'"),
+                        ws(),
+                    ),
+                ),
+            ),
+        ),
+    ) => GrammarItem::Rule(GrammarRule::Valid {
         name,
         modifier: rule_mod,
         expression: expr,
     }))
-    .erase_types()
+    .erase_types();
+
+    rule.recover_with(recover_grammar_rule())
 }
 
 fn grammar_item<'src>() -> impl Parser<'src, &'src str, Output = GrammarItem> + Clone {
@@ -476,11 +533,30 @@ mod tests {
         let grammar = get_pest_grammar().parse_str(src).unwrap().0;
         assert_eq!(grammar.items.len(), 1);
         match &grammar.items[0] {
-            GrammarItem::Rule(r) => {
-                assert_eq!(r.name, "rule");
-                assert_eq!(r.modifier, None);
+            GrammarItem::Rule(GrammarRule::Valid {
+                name, modifier, ..
+            }) => {
+                assert_eq!(name, "rule");
+                assert_eq!(*modifier, None);
             }
             other => panic!("expected rule, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn recovers_invalid_rule_and_parses_following_rule() {
+        let src = r#"bad = broken
+good = { "ok" }"#;
+        let (grammar, errors) = get_pest_grammar().parse_str(src).unwrap();
+        assert!(!errors.is_empty());
+        assert_eq!(grammar.items.len(), 2);
+        match &grammar.items[0] {
+            GrammarItem::Rule(GrammarRule::Invalid { name, .. }) => assert_eq!(name, "bad"),
+            other => panic!("expected invalid rule, got {other:?}"),
+        }
+        match &grammar.items[1] {
+            GrammarItem::Rule(GrammarRule::Valid { name, .. }) => assert_eq!(name, "good"),
+            other => panic!("expected valid rule, got {other:?}"),
         }
     }
 

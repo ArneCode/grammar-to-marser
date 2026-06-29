@@ -3,9 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>pest-to-marser</title>
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/codemirror.min.css">
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/theme/material-darker.min.css">
+  <title>pest-to-marser — Pest grammar → Marser Rust converter</title>
   <style>
     * {
       box-sizing: border-box;
@@ -14,8 +12,8 @@
     body {
       margin: 0;
       font-family: system-ui, -apple-system, sans-serif;
-      background: #212121;
-      color: #eeffff;
+      background: #1e1e1e;
+      color: #cccccc;
       height: 100vh;
       display: flex;
       flex-direction: column;
@@ -26,33 +24,176 @@
       border-bottom: 1px solid #333;
       display: flex;
       align-items: center;
-      gap: 1rem;
+      gap: 0.75rem;
       flex-shrink: 0;
+      flex-wrap: wrap;
     }
 
-    header h1 {
+    .title-block h1 {
       margin: 0;
       font-size: 1.1rem;
       font-weight: 600;
     }
 
-    label {
+    .title-block p {
+      margin: 0.15rem 0 0;
+      font-size: 0.75rem;
+      color: #888;
+    }
+
+    .toolbar {
       display: flex;
       align-items: center;
       gap: 0.5rem;
-      font-size: 0.875rem;
+      flex-wrap: wrap;
+    }
+
+    .toolbar label {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+      font-size: 0.8125rem;
       color: #aaa;
     }
 
-    label input {
+    .toolbar select,
+    .toolbar input[type="text"] {
       background: #2d2d2d;
       border: 1px solid #444;
-      color: #eeffff;
+      color: #cccccc;
       padding: 0.25rem 0.5rem;
       border-radius: 4px;
+      font-size: 0.8125rem;
+    }
+
+    .toolbar input[type="text"] {
       font-family: ui-monospace, monospace;
-      font-size: 0.875rem;
       width: 8rem;
+    }
+
+    .toolbar select {
+      min-width: 7rem;
+    }
+
+    .entry-rule-wrap {
+      display: flex;
+      flex-direction: column;
+      gap: 0.15rem;
+    }
+
+    #entry-rule-hint {
+      font-size: 0.7rem;
+      color: #f48771;
+    }
+
+    .btn {
+      background: #2d2d2d;
+      border: 1px solid #444;
+      color: #cccccc;
+      padding: 0.3rem 0.6rem;
+      border-radius: 4px;
+      font-size: 0.8125rem;
+      cursor: pointer;
+    }
+
+    .btn:hover:not(:disabled) {
+      background: #3a3a3a;
+      border-color: #555;
+    }
+
+    .btn:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
+    .btn-sm {
+      padding: 0.2rem 0.45rem;
+      font-size: 0.7rem;
+    }
+
+    .btn:focus-visible {
+      outline: 2px solid #007acc;
+      outline-offset: 2px;
+    }
+
+    .toolbar-sep {
+      width: 1px;
+      height: 1.25rem;
+      background: #3a3a3a;
+      flex-shrink: 0;
+      align-self: center;
+    }
+
+    .share-wrap {
+      display: flex;
+      align-items: center;
+      gap: 0.3rem;
+    }
+
+    .pane-sep {
+      width: 1px;
+      height: 1rem;
+      background: #444;
+      flex-shrink: 0;
+      align-self: center;
+    }
+
+    .header-links {
+      display: flex;
+      gap: 0.75rem;
+      font-size: 0.75rem;
+    }
+
+    .header-links a {
+      color: #6cb6ff;
+      text-decoration: none;
+    }
+
+    .header-links a:hover {
+      text-decoration: underline;
+    }
+
+    #status {
+      margin-left: auto;
+      font-size: 0.75rem;
+      color: #666;
+      white-space: nowrap;
+      display: flex;
+      align-items: center;
+      gap: 0.3em;
+    }
+
+    #status::before {
+      content: "●";
+      font-size: 0.6em;
+      flex-shrink: 0;
+    }
+
+    #share-outdated {
+      font-size: 0.68rem;
+      color: #dcdcaa;
+      background: rgba(220, 220, 170, 0.1);
+      border: 1px solid rgba(220, 220, 170, 0.3);
+      border-radius: 3px;
+      padding: 0.1rem 0.35rem;
+      white-space: nowrap;
+    }
+
+    #onboarding-banner {
+      padding: 0.5rem 1rem;
+      background: #252526;
+      border-bottom: 1px solid #333;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      font-size: 0.8125rem;
+      color: #aaa;
+      flex-shrink: 0;
+    }
+
+    #onboarding-banner p {
+      margin: 0;
+      flex: 1;
     }
 
     .panes {
@@ -68,8 +209,22 @@
       min-width: 0;
     }
 
-    .pane + .pane {
-      border-left: 1px solid #333;
+    #pane-resizer {
+      width: 5px;
+      cursor: col-resize;
+      background: #333;
+      flex-shrink: 0;
+      transition: background 0.15s;
+    }
+
+    #pane-resizer:hover,
+    #pane-resizer.dragging {
+      background: #007acc;
+    }
+
+    #pane-resizer:focus-visible {
+      outline: none;
+      background: #007acc;
     }
 
     .pane-header {
@@ -82,284 +237,249 @@
       background: #252526;
       border-bottom: 1px solid #333;
       flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.5rem;
+    }
+
+    .pane-header-left {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      min-width: 0;
+    }
+
+    .pane-actions {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      flex-shrink: 0;
+    }
+
+    .pane-actions label {
+      display: flex;
+      align-items: center;
+      gap: 0.25rem;
+      font-size: 0.7rem;
+      font-weight: 400;
+      text-transform: none;
+      letter-spacing: normal;
+      color: #aaa;
+      cursor: pointer;
+    }
+
+    #pest-filename {
+      font-size: 0.7rem;
+      font-weight: 400;
+      text-transform: none;
+      letter-spacing: normal;
+      color: #6cb6ff;
     }
 
     .editor-host {
       flex: 1;
       min-height: 0;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
     }
 
-    .editor-host .CodeMirror {
-      height: 100%;
+    .editor-host.drag-over {
+      outline: 2px dashed #007acc;
+      outline-offset: -2px;
+    }
+
+    .editor-host .cm-editor {
+      flex: 1 1 0;
+      min-height: 0;
       font-family: ui-monospace, "Cascadia Code", "Fira Code", monospace;
       font-size: 0.875rem;
     }
 
-    .cm-s-material-darker .cm-def { color: #82aaff; font-weight: bold; }
-    .cm-s-material-darker .cm-builtin { color: #82aaff; }
-    .cm-s-material-darker .cm-modifier { color: #ffcb6b; }
-
-    #error {
-      padding: 0.5rem 1rem;
-      font-family: ui-monospace, monospace;
-      font-size: 0.8125rem;
-      color: #f48771;
-      background: #2d1f1f;
-      border-top: 1px solid #5a2d2d;
-      white-space: pre-wrap;
-      flex-shrink: 0;
-      min-height: 2rem;
+    .editor-host .cm-scroller {
+      overflow: auto;
     }
 
-    #error:empty {
+    #error-panel {
+      border-top: 1px solid #5a2d2d;
+      border-left: 3px solid #f48771;
+      background: #2d1f1f;
+      flex-shrink: 0;
+    }
+
+    #error-panel:has(#error-list[hidden]) {
       display: none;
     }
 
-    #status {
-      margin-left: auto;
-      font-size: 0.75rem;
-      color: #666;
+    .error-header {
+      padding: 0.35rem 1rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid #5a2d2d;
+      font-size: 0.7rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #f48771;
+    }
+
+    #error-list {
+      margin: 0;
+      padding: 0.5rem 1rem 0.5rem 2rem;
+      font-family: ui-monospace, monospace;
+      font-size: 0.8125rem;
+      color: #f48771;
+      max-height: 8rem;
+      overflow-y: auto;
+    }
+
+    #error-list li {
+      margin: 0.25rem 0;
+    }
+
+    #file-input {
+      display: none;
+    }
+
+    @media (max-width: 768px) {
+      header {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+
+      #status {
+        margin-left: 0;
+      }
+
+      .panes {
+        flex-direction: column;
+      }
+
+      #pane-resizer {
+        display: none;
+      }
+
+      .pane {
+        border-left: none !important;
+        border-top: 1px solid #333;
+      }
+
+      #pest-pane {
+        flex: 0 0 40% !important;
+        border-top: none;
+      }
+
+      #rust-pane {
+        flex: 1 1 0 !important;
+      }
     }
   </style>
 </head>
 <body>
   <header>
-    <h1>pest-to-marser</h1>
-    <label>
-      Entry rule
-      <input type="text" id="entry-rule" value="" placeholder="last rule" spellcheck="false">
-    </label>
+    <div class="title-block">
+      <h1>pest-to-marser</h1>
+      <p>Convert Pest grammars to Marser Rust parsers</p>
+    </div>
+
+    <div class="toolbar">
+      <label>
+        Example
+        <select id="examples-select">
+          <option value="">Load…</option>
+          <option value="simple">Simple</option>
+          <option value="calc">Calculator</option>
+        </select>
+      </label>
+
+      <div class="entry-rule-wrap">
+        <label
+          title="The rule used as the parser entry point (like pest::Parser::parse(Rule::…, input))."
+        >
+          Entry rule
+          <input
+            type="text"
+            id="entry-rule"
+            list="rule-names"
+            value=""
+            placeholder="last rule"
+            spellcheck="false"
+          >
+        </label>
+        <span id="entry-rule-hint" hidden></span>
+        <datalist id="rule-names"></datalist>
+      </div>
+
+      <button type="button" class="btn" id="open-file-btn">Open</button>
+      <input type="file" id="file-input" accept=".pest,text/plain">
+
+      <div class="share-wrap">
+        <button type="button" class="btn" id="share-link-btn">Share link</button>
+        <span id="share-outdated" hidden>outdated</span>
+      </div>
+    </div>
+
+    <div class="header-links">
+      <a href="https://docs.rs/marser" target="_blank" rel="noopener">marser docs</a>
+      <a href="https://github.com/ArneCode/marser" target="_blank" rel="noopener">GitHub</a>
+    </div>
+
     <span id="status">Loading…</span>
   </header>
 
-  <div class="panes">
-    <div class="pane">
-      <div class="pane-header">Pest grammar</div>
+  <div id="onboarding-banner">
+    <p>Edit Pest on the left; Rust updates live. Set entry rule, then copy or download.</p>
+    <button type="button" class="btn btn-sm" id="onboarding-dismiss">Dismiss</button>
+  </div>
+
+  <div class="panes" id="panes">
+    <div class="pane" id="pest-pane">
+      <div class="pane-header">
+        <div class="pane-header-left">
+          <span>Pest grammar</span>
+          <span id="pest-filename" hidden></span>
+        </div>
+        <div class="pane-actions">
+          <button type="button" class="btn btn-sm" id="copy-pest-btn">Copy</button>
+        </div>
+      </div>
       <div id="pest-editor" class="editor-host"></div>
     </div>
-    <div class="pane">
-      <div class="pane-header">Marser Rust output</div>
+
+    <div id="pane-resizer" role="separator" aria-label="Resize panes" aria-orientation="vertical" tabindex="0"></div>
+
+    <div class="pane" id="rust-pane">
+      <div class="pane-header">
+        <span>Marser Rust output</span>
+        <div class="pane-actions">
+          <label>
+            <input type="checkbox" id="emit-comments" checked>
+            Comments
+          </label>
+          <label>
+            <input type="checkbox" id="wrap-module">
+            Wrap in module
+          </label>
+          <span class="pane-sep" aria-hidden="true"></span>
+          <button type="button" class="btn btn-sm" id="copy-rust-btn" disabled>Copy</button>
+          <button type="button" class="btn btn-sm" id="download-rs-btn" disabled>Download .rs</button>
+          <button type="button" class="btn btn-sm" id="download-project-btn" disabled>Download project</button>
+        </div>
+      </div>
       <div id="rust-editor" class="editor-host"></div>
     </div>
   </div>
 
-  <div id="error"></div>
+  <div id="error-panel">
+    <div class="error-header">
+      <span>Errors</span>
+      <button type="button" class="btn btn-sm" id="copy-errors-btn" disabled>Copy errors</button>
+    </div>
+    <ul id="error-list" hidden></ul>
+  </div>
 
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/codemirror.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/addon/mode/simple.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/mode/rust/rust.min.js"></script>
-  <script>
-    (function () {
-      var BUILTINS = {
-        SOI: 1, EOI: 1, ANY: 1,
-        ASCII_ALPHA: 1, ASCII_ALPHANUMERIC: 1, ASCII_DIGIT: 1, ASCII_HEXDIGIT: 1,
-        ASCII_BIN: 1, ASCII_OCT: 1, ASCII_PUNCT: 1, ASCII_LOWER: 1, ASCII_UPPER: 1,
-      };
-
-      CodeMirror.defineMode("pest", function () {
-        return {
-          startState: function () {
-            return { lineStart: true };
-          },
-          token: function (stream, state) {
-            if (stream.sol()) {
-              state.lineStart = true;
-            }
-
-            if (stream.eatSpace()) {
-              return null;
-            }
-
-            if (stream.match("//")) {
-              stream.skipToEnd();
-              state.lineStart = false;
-              return "comment";
-            }
-
-            if (stream.match('"')) {
-              while (!stream.eol()) {
-                var ch = stream.next();
-                if (ch === null) break;
-                if (ch === '"') break;
-                if (ch === "\\") stream.next();
-              }
-              state.lineStart = false;
-              return "string";
-            }
-
-            if (stream.match(/[@_$]/)) {
-              state.lineStart = false;
-              return "modifier";
-            }
-
-            if (stream.match(/[!&]/)) {
-              state.lineStart = false;
-              return "operator";
-            }
-
-            if (stream.match(/[a-zA-Z_][a-zA-Z0-9_]*/)) {
-              var word = stream.current();
-              if (BUILTINS[word]) {
-                state.lineStart = false;
-                return "builtin";
-              }
-
-              if (state.lineStart) {
-                var saved = stream.pos;
-                stream.eatSpace();
-                stream.match(/[@_$]*/);
-                stream.eatSpace();
-                if (stream.peek() === "=") {
-                  state.lineStart = false;
-                  return "def";
-                }
-                stream.pos = saved;
-              }
-
-              state.lineStart = false;
-              return "variable";
-            }
-
-            if (stream.match(/[=~|*+?,(){}]/)) {
-              state.lineStart = false;
-              return "operator";
-            }
-
-            stream.next();
-            state.lineStart = false;
-            return null;
-          },
-        };
-      });
-    })();
-  </script>
-
-  <script type="module">
-    const STORAGE_KEY_PEST = "pest-to-marser.pest";
-    const STORAGE_KEY_ENTRY = "pest-to-marser.entry-rule";
-
-    const DEFAULT_PEST = `WHITESPACE = _{ " " | "\\t" | newline }
-COMMENT = _{ line_comment }
-newline = _{ "\\n" | "\\r\\n" }
-line_comment = _{ "//" ~ (!newline ~ ANY)* }
-
-main = { SOI ~ item ~ ("," ~ item)* ~ EOI }
-item = { ident ~ "=" ~ number }
-ident = @{ ("_" | ASCII_ALPHA) ~ ("_" | ASCII_ALPHANUMERIC)* }
-number = @{ ASCII_DIGIT+ }
-`;
-
-    function loadSaved(key) {
-      try {
-        return localStorage.getItem(key);
-      } catch {
-        return null;
-      }
-    }
-
-    function save(key, value) {
-      try {
-        localStorage.setItem(key, value);
-      } catch {
-        // ignore quota / private browsing errors
-      }
-    }
-
-    const entryRule = document.getElementById("entry-rule");
-    const errorEl = document.getElementById("error");
-    const statusEl = document.getElementById("status");
-
-    const savedPest = loadSaved(STORAGE_KEY_PEST);
-    const savedEntry = loadSaved(STORAGE_KEY_ENTRY);
-    if (savedEntry !== null) {
-      entryRule.value = savedEntry;
-    }
-
-    const pestEditor = CodeMirror(document.getElementById("pest-editor"), {
-      value: savedPest ?? DEFAULT_PEST,
-      mode: "pest",
-      theme: "material-darker",
-      lineNumbers: true,
-      indentUnit: 2,
-      tabSize: 2,
-    });
-
-    const rustEditor = CodeMirror(document.getElementById("rust-editor"), {
-      value: "",
-      mode: "rust",
-      theme: "material-darker",
-      lineNumbers: true,
-      readOnly: true,
-      lineWrapping: true,
-    });
-
-    let debounceTimer = null;
-    let convertFn = null;
-
-    function setEditorContent(editor, text) {
-      if (editor.getValue() === text) return;
-      const scroll = editor.getScrollInfo();
-      editor.setValue(text);
-      editor.refresh();
-      editor.scrollTo(scroll.left, scroll.top);
-    }
-
-    function runConvert() {
-      if (!convertFn) return;
-
-      const source = pestEditor.getValue();
-      const entry = entryRule.value.trim();
-
-      try {
-        const code = convertFn(source, entry);
-        setEditorContent(rustEditor, code);
-        errorEl.textContent = "";
-        statusEl.textContent = "OK";
-        statusEl.style.color = "#4ec9b0";
-      } catch (err) {
-        setEditorContent(rustEditor, "");
-        errorEl.textContent = String(err);
-        statusEl.textContent = "Error";
-        statusEl.style.color = "#f48771";
-      }
-    }
-
-    function scheduleConvert() {
-      clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(runConvert, 300);
-    }
-
-    pestEditor.on("change", () => {
-      save(STORAGE_KEY_PEST, pestEditor.getValue());
-      scheduleConvert();
-    });
-    entryRule.addEventListener("input", () => {
-      save(STORAGE_KEY_ENTRY, entryRule.value);
-      scheduleConvert();
-    });
-
-    function refreshEditorSizes() {
-      const pestHost = document.getElementById("pest-editor");
-      const rustHost = document.getElementById("rust-editor");
-      pestEditor.setSize(null, pestHost.clientHeight);
-      rustEditor.setSize(null, rustHost.clientHeight);
-    }
-
-    window.addEventListener("resize", refreshEditorSizes);
-    requestAnimationFrame(refreshEditorSizes);
-
-    try {
-      const wasm = await import("./pkg/web.js");
-      await wasm.default();
-      convertFn = wasm.convert;
-      statusEl.textContent = "Ready";
-      statusEl.style.color = "#666";
-      runConvert();
-    } catch (err) {
-      statusEl.textContent = "WASM load failed";
-      statusEl.style.color = "#f48771";
-      errorEl.textContent = String(err);
-    }
-  </script>
+  <script type="module" src="./editor.js"></script>
 </body>
 </html>

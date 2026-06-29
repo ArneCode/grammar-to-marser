@@ -71,6 +71,9 @@ fn simple_grammar_generates_rust() {
     assert!(code.contains("pub fn grammar"));
     assert!(code.contains("start_of_input()"));
     assert!(code.contains("end_of_input()"));
+    assert!(!code.contains("positive_lookahead"));
+    assert!(!code.contains("DeferredWeak"));
+    assert!(!code.contains("recursive"));
 }
 
 #[test]
@@ -89,6 +92,66 @@ fn calc_grammar_generates_recursive_block() {
     assert!(!code.contains("recursive3"));
     assert!(code.contains("let factor ="));
     assert!(code.contains("let term ="));
+    assert!(!code.contains("start_of_input"));
+    assert!(!code.contains("negative_lookahead"));
+    assert!(!code.contains("DeferredWeak"));
+}
+
+#[test]
+fn simple_grammar_hoists_builtins() {
+    let src = include_str!("fixtures/simple.pest");
+    let code = convert_pest_source(
+        src,
+        &ConvertOptions {
+            entry_rule: "main".to_string(),
+            ..Default::default()
+        },
+    )
+    .expect("simple grammar should convert");
+    assert!(code.contains("let ASCII_ALPHA ="));
+    assert!(code.contains("let ASCII_ALPHANUMERIC ="));
+    assert!(code.contains("ASCII_ALPHA.clone()"));
+    assert!(code.contains("start_of_input()"));
+    assert!(code.contains("end_of_input()"));
+    assert!(!code.contains("let SOI ="));
+    assert!(!code.contains("let EOI ="));
+    assert!(!code.contains("one_of(('_', one_of(('a'..='z', 'A'..='Z')))"));
+}
+
+#[test]
+fn case_insensitive_literal_uses_ci_ch_helper() {
+    let src = r#"
+main = { SOI ~ ^"select" ~ EOI }
+"#;
+    let code = convert_pest_source(
+        src,
+        &ConvertOptions {
+            entry_rule: "main".to_string(),
+            ..Default::default()
+        },
+    )
+    .expect("case-insensitive grammar should convert");
+    assert!(code.contains("fn ci_ch"));
+    assert!(code.contains("ci_ch('s')"));
+    assert!(!code.contains("one_of(('s', 'S'))"));
+}
+
+#[test]
+fn bounded_repeat_uses_marser_repeat() {
+    let src = r#"
+WHITESPACE = _{ " " }
+main = { SOI ~ "a"{2,4} ~ EOI }
+"#;
+    let code = convert_pest_source(
+        src,
+        &ConvertOptions {
+            entry_rule: "main".to_string(),
+            ..Default::default()
+        },
+    )
+    .expect("bounded-repeat grammar should convert");
+    assert!(code.contains("repeat,"));
+    assert!(code.contains("repeat((ws.clone(), 'a'), 1..=3)"));
 }
 
 #[test]

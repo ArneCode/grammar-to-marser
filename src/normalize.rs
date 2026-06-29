@@ -33,29 +33,41 @@ pub fn build_rule_table(grammar: &Grammar) -> ConvertResult<RuleTable> {
         match item {
             GrammarItem::Doc(doc) => grammar_docs.push(doc.clone()),
             GrammarItem::LineDoc(_) => {}
-            GrammarItem::Rule(rule) => {
-                if !seen.insert(rule.name.clone()) {
-                    errors.push(ConvertError::DuplicateRule {
-                        name: rule.name.clone(),
+            GrammarItem::Rule(rule) => match rule {
+                GrammarRule::Valid {
+                    name,
+                    modifier,
+                    expression,
+                } => {
+                    if !seen.insert(name.clone()) {
+                        errors.push(ConvertError::DuplicateRule {
+                            name: name.clone(),
+                        });
+                        continue;
+                    }
+                    if name == "WHITESPACE" {
+                        has_whitespace = true;
+                    }
+                    if name == "COMMENT" {
+                        has_comment = true;
+                    }
+                    match normalize_expression(expression) {
+                        Ok(expr) => rules.push(RuleDef {
+                            name: name.clone(),
+                            modifier: modifier.clone(),
+                            expr,
+                            docs: Vec::new(),
+                        }),
+                        Err(mut normalize_errors) => errors.append(&mut normalize_errors),
+                    }
+                }
+                GrammarRule::Invalid { name, text } => {
+                    errors.push(ConvertError::InvalidRule {
+                        name: name.clone(),
+                        text: text.clone(),
                     });
-                    continue;
                 }
-                if rule.name == "WHITESPACE" {
-                    has_whitespace = true;
-                }
-                if rule.name == "COMMENT" {
-                    has_comment = true;
-                }
-                match normalize_expression(&rule.expression) {
-                    Ok(expr) => rules.push(RuleDef {
-                        name: rule.name.clone(),
-                        modifier: rule.modifier.clone(),
-                        expr,
-                        docs: Vec::new(),
-                    }),
-                    Err(mut normalize_errors) => errors.append(&mut normalize_errors),
-                }
-            }
+            },
         }
     }
 
@@ -65,13 +77,14 @@ pub fn build_rule_table(grammar: &Grammar) -> ConvertResult<RuleTable> {
     for item in &grammar.items {
         match item {
             GrammarItem::LineDoc(doc) => pending_docs.push(doc.clone()),
-            GrammarItem::Rule(rule) => {
-                if let Some(def) = rules.iter().find(|r| r.name == rule.name) {
+            GrammarItem::Rule(GrammarRule::Valid { name, .. }) => {
+                if let Some(def) = rules.iter().find(|r| r.name == *name) {
                     let mut def = def.clone();
                     def.docs = std::mem::take(&mut pending_docs);
                     rules_with_docs.push(def);
                 }
             }
+            GrammarItem::Rule(GrammarRule::Invalid { .. }) => {}
             GrammarItem::Doc(_) => {}
         }
     }
@@ -273,7 +286,7 @@ mod tests {
 
     fn rule(name: &str, expr: Expression) -> Grammar {
         Grammar {
-            items: vec![GrammarItem::Rule(GrammarRule {
+            items: vec![GrammarItem::Rule(GrammarRule::Valid {
                 name: name.to_string(),
                 modifier: None,
                 expression: expr,
@@ -399,7 +412,7 @@ mod tests {
     fn user_defined_rule_wins_over_builtin() {
         let grammar = Grammar {
             items: vec![
-                GrammarItem::Rule(GrammarRule {
+                GrammarItem::Rule(GrammarRule::Valid {
                     name: "ANY".to_string(),
                     modifier: None,
                     expression: Expression {
@@ -413,7 +426,7 @@ mod tests {
                         infix_ops: vec![],
                     },
                 }),
-                GrammarItem::Rule(GrammarRule {
+                GrammarItem::Rule(GrammarRule::Valid {
                     name: "main".to_string(),
                     modifier: None,
                     expression: Expression {
@@ -438,7 +451,7 @@ mod tests {
     fn duplicate_rules_are_rejected() {
         let grammar = Grammar {
             items: vec![
-                GrammarItem::Rule(GrammarRule {
+                GrammarItem::Rule(GrammarRule::Valid {
                     name: "a".to_string(),
                     modifier: None,
                     expression: Expression {
@@ -452,7 +465,7 @@ mod tests {
                         infix_ops: vec![],
                     },
                 }),
-                GrammarItem::Rule(GrammarRule {
+                GrammarItem::Rule(GrammarRule::Valid {
                     name: "a".to_string(),
                     modifier: Some(Modifier::Silent),
                     expression: Expression {
