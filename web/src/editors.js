@@ -161,11 +161,3 @@ export function setEditorContent(view, text) {
   view.scrollDOM.scrollTop = scrollTop;
   view.scrollDOM.scrollLeft = scrollLeft;
 }
-
-export function wrapAsModule(code) {
-  const indented = code
-    .split("\n")
-    .map((line) => (line.length > 0 ? `    ${line}` : ""))
-    .join("\n");
-  return `pub mod grammar {\n${indented}\n}`;
-}

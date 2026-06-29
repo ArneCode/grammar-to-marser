@@ -3,7 +3,6 @@ import {
   createRustEditor,
   fitEditors,
   setEditorContent,
-  wrapAsModule,
 } from "./editors.js";
 import { EXAMPLES, DEFAULT_PEST } from "./examples.js";
 import {
@@ -32,7 +31,7 @@ import {
 const STORAGE_KEY_PEST = "pest-to-marser.pest";
 const STORAGE_KEY_ENTRY = "pest-to-marser.entry-rule";
 const STORAGE_KEY_EMIT_COMMENTS = "pest-to-marser.emit-comments";
-const STORAGE_KEY_WRAP_MODULE = "pest-to-marser.wrap-module";
+const STORAGE_KEY_EMIT_TRACE = "pest-to-marser.emit-trace";
 
 function loadSaved(key) {
   try {
@@ -66,7 +65,7 @@ function initialDoc(key, fallback) {
 const entryRuleEl = document.getElementById("entry-rule");
 const examplesSelect = document.getElementById("examples-select");
 const emitCommentsEl = document.getElementById("emit-comments");
-const wrapModuleEl = document.getElementById("wrap-module");
+const emitTraceEl = document.getElementById("emit-trace");
 
 let debounceTimer = null;
 let convertFn = null;
@@ -90,8 +89,8 @@ if (emitCommentsEl) {
   emitCommentsEl.checked = loadBool(STORAGE_KEY_EMIT_COMMENTS, true);
 }
 
-if (wrapModuleEl) {
-  wrapModuleEl.checked = loadBool(STORAGE_KEY_WRAP_MODULE, false);
+if (emitTraceEl) {
+  emitTraceEl.checked = loadBool(STORAGE_KEY_EMIT_TRACE, false);
 }
 
 function getPestSource() {
@@ -106,19 +105,12 @@ function getEmitComments() {
   return emitCommentsEl?.checked ?? true;
 }
 
-function getWrapModule() {
-  return wrapModuleEl?.checked ?? false;
-}
-
-function displayOutput(raw) {
-  if (getWrapModule()) {
-    return wrapAsModule(raw);
-  }
-  return raw;
+function getEmitTrace() {
+  return emitTraceEl?.checked ?? false;
 }
 
 function updateRustPane() {
-  setEditorContent(rustEditor, displayOutput(lastRawOutput));
+  setEditorContent(rustEditor, lastRawOutput);
   const copyRustBtn = document.getElementById("copy-rust-btn");
   const downloadRsBtn = document.getElementById("download-rs-btn");
   const downloadProjectBtn = document.getElementById("download-project-btn");
@@ -182,16 +174,17 @@ function runConvert() {
   const source = getPestSource();
   const entry = getEntryRule().trim();
   const emitComments = getEmitComments();
+  const emitTrace = getEmitTrace();
 
   refreshRules();
 
   const t0 = performance.now();
   try {
-    const code = convertFn(source, entry, emitComments);
+    const code = convertFn(source, entry, emitComments, emitTrace);
     lastConvertMs = performance.now() - t0;
     lastRawOutput = code;
     lastErrors = [];
-    setEditorContent(rustEditor, displayOutput(code));
+    setEditorContent(rustEditor, code);
     clearErrors();
     setParseDiagnostic(pestEditor, null);
     setStatus(`OK · ${Math.round(lastConvertMs)}ms`, "#4ec9b0");
@@ -236,9 +229,9 @@ emitCommentsEl?.addEventListener("change", () => {
   scheduleConvert();
 });
 
-wrapModuleEl?.addEventListener("change", () => {
-  save(STORAGE_KEY_WRAP_MODULE, wrapModuleEl.checked ? "1" : "0");
-  updateRustPane();
+emitTraceEl?.addEventListener("change", () => {
+  save(STORAGE_KEY_EMIT_TRACE, emitTraceEl.checked ? "1" : "0");
+  scheduleConvert();
 });
 
 examplesSelect?.addEventListener("change", () => {
@@ -278,6 +271,7 @@ document.getElementById("download-project-btn")?.addEventListener("click", () =>
     pestSource: getPestSource(),
     grammarRs: lastRawOutput,
     entryRule: getEntryRule(),
+    emitTrace: getEmitTrace(),
   });
 });
 

@@ -38,8 +38,11 @@ export function getProjectName() {
 
 export function promptProjectName() {
   const current = getProjectName();
-  const name = window.prompt("Project name (for zip folder and Cargo package):", current);
-  if (name == null || name.trim() === "") {
+  const name = window.prompt("Project name (zip filename and Cargo package):", current);
+  if (name == null) {
+    return null;
+  }
+  if (name.trim() === "") {
     return current;
   }
   const sanitized = name.trim().replace(/[^a-zA-Z0-9_-]/g, "-");
@@ -55,16 +58,18 @@ export async function downloadProjectZip({
   pestSource,
   grammarRs,
   entryRule,
+  emitTrace = false,
 }) {
   const projectName = promptProjectName();
-  const zip = new JSZip();
-  const folder = zip.folder(projectName);
+  if (projectName == null) return;
 
-  folder.file("Cargo.toml", cargoToml(projectName));
-  folder.file("grammar.pest", pestSource);
-  folder.file("README.md", readme(projectName, entryRule));
-  folder.file("src/grammar.rs", grammarRs);
-  folder.file("src/main.rs", mainRs());
+  const zip = new JSZip();
+
+  zip.file("Cargo.toml", cargoToml(projectName, emitTrace));
+  zip.file("grammar.pest", pestSource);
+  zip.file("README.md", readme(projectName, entryRule, emitTrace));
+  zip.file("src/grammar.rs", grammarRs);
+  zip.file("src/main.rs", mainRs(emitTrace));
 
   const blob = await zip.generateAsync({ type: "blob" });
   const url = URL.createObjectURL(blob);

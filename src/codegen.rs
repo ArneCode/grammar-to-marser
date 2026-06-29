@@ -4,6 +4,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use syn::parse_quote;
 
+use crate::ast::Modifier;
 use crate::ast::PostfixOp;
 use crate::ast::PrefixOp;
 use crate::error::ConvertError;
@@ -256,6 +257,7 @@ pub struct CodegenOptions {
     pub function_name: String,
     pub source: Option<String>,
     pub emit_comments: bool,
+    pub emit_trace: bool,
 }
 
 impl Default for CodegenOptions {
@@ -264,6 +266,7 @@ impl Default for CodegenOptions {
             function_name: "grammar".to_string(),
             source: None,
             emit_comments: true,
+            emit_trace: false,
         }
     }
 }
@@ -885,7 +888,11 @@ impl<'a> Generator<'a> {
             out.push_str(item);
             out.push_str(",\n");
         }
-        out.push_str("};\n\n");
+        out.push_str("};\n");
+        if self.options.emit_trace {
+            out.push_str("use marser::trace::WithTrace;\n");
+        }
+        out.push('\n');
     }
 
     fn emit(&mut self) -> Result<String, ConvertError> {
@@ -1289,6 +1296,33 @@ impl<'a> Generator<'a> {
         (self.table.has_whitespace || self.table.has_comment) && ctx == MatchingContext::NormalWs
     }
 
+    fn ws_ref(&self) -> String {
+        if self.options.emit_trace {
+            "ws.clone().trace()".to_string()
+        } else {
+            "ws.clone()".to_string()
+        }
+    }
+
+    fn should_trace_rule(&self, rule: &RuleDef) -> bool {
+        self.options.emit_trace && rule.modifier != Some(Modifier::Silent)
+    }
+
+    fn trace_bind(
+        &self,
+        reference: &str,
+        sigil_prefix: &str,
+        bind_name: &str,
+        rule: &RuleDef,
+    ) -> String {
+        let bind = format!("bind!({reference}, {sigil_prefix}{bind_name})");
+        if self.should_trace_rule(rule) {
+            format!("{bind}.trace()")
+        } else {
+            bind
+        }
+    }
+
     fn gen_sequence(
         &self,
         items: &[Expr],
@@ -1302,7 +1336,7 @@ impl<'a> Generator<'a> {
         let mut parts = Vec::new();
         for (idx, item) in items.iter().enumerate() {
             if idx > 0 && has_ws && ctx == MatchingContext::NormalWs {
-                parts.push("ws.clone()".to_string());
+                parts.push(self.ws_ref());
             }
             parts.push(self.gen_expr(
                 item,
@@ -1374,8 +1408,9 @@ impl<'a> Generator<'a> {
         at_least_one: bool,
     ) -> String {
         if self.uses_ws(ctx) {
+            let ws = self.ws_ref();
             if !at_least_one {
-                let rendered = format!("repeat_ws({inner}, ws.clone())");
+                let rendered = format!("repeat_ws({inner}, {ws})");
                 agent_debug_log(
                     "H3",
                     "src/codegen.rs:gen_unbounded_repeat",
@@ -1387,7 +1422,7 @@ impl<'a> Generator<'a> {
                 );
                 return rendered;
             }
-            let rendered = format!("repeat_one_or_more_ws({inner}, ws.clone())");
+            let rendered = format!("repeat_one_or_more_ws({inner}, {ws})");
             agent_debug_log(
                 "H3",
                 "src/codegen.rs:gen_unbounded_repeat",
@@ -1416,6 +1451,7 @@ impl<'a> Generator<'a> {
         let max = max.map(|value| value as usize);
 
         if self.uses_ws(ctx) {
+            let ws = self.ws_ref();
             if min == 0 {
                 let Some(max) = max else {
                     return self.gen_unbounded_repeat(inner, ctx, false);
@@ -1427,12 +1463,12 @@ impl<'a> Generator<'a> {
                     return format!("optional({inner})");
                 }
                 return format!(
-                    "optional(({inner}, repeat((ws.clone(), {inner}), 0..={})))",
+                    "optional(({inner}, repeat(({ws}, {inner}), 0..={})))",
                     max - 1
                 );
             }
 
-            let ws_repeat = format!("(ws.clone(), {inner})");
+            let ws_repeat = format!("({ws}, {inner})");
             return match max {
                 Some(max) if max == min => {
                     if min == 1 {
@@ -1473,10 +1509,7 @@ impl<'a> Generator<'a> {
             }
             let sigil = sigil_map.get(name).copied().unwrap_or(BindSigil::Plain);
             let bind_name = bind_var_name(name);
-            return format!(
-                "bind!({reference}, {}{bind_name})",
-                sigil.prefix()
-            );
+            return self.trace_bind(&reference, sigil.prefix(), &bind_name, rule);
         }
         if let Some(builtin) = Builtin::from_name(name) {
             return self.gen_builtin_matcher(builtin);

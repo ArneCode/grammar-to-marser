@@ -25,11 +25,17 @@ fn errors_to_js(errors: &[ConvertError]) -> JsValue {
 }
 
 #[wasm_bindgen]
-pub fn convert(pest_source: &str, entry_rule: &str, emit_comments: bool) -> Result<String, JsValue> {
+pub fn convert(
+    pest_source: &str,
+    entry_rule: &str,
+    emit_comments: bool,
+    emit_trace: bool,
+) -> Result<String, JsValue> {
     let options = ConvertOptions {
         entry_rule: entry_rule.to_string(),
         function_name: "grammar".to_string(),
         emit_comments,
+        emit_trace,
     };
 
     convert_pest_source(pest_source, &options).map_err(|errors| errors_to_js(&errors))

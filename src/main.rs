@@ -3,7 +3,7 @@ use std::{env, fs, process};
 use pest_to_marser::{ConvertOptions, convert_pest_source};
 
 fn usage() -> ! {
-    eprintln!("usage: pest-to-marser <grammar.pest> [entry_rule] [--output <path>]");
+    eprintln!("usage: pest-to-marser <grammar.pest> [entry_rule] [--output <path>] [--trace]");
     process::exit(1);
 }
 
@@ -12,10 +12,13 @@ fn main() {
     let path = args.next().unwrap_or_else(|| usage());
     let mut entry_rule = String::new();
     let mut output_path = None;
+    let mut emit_trace = false;
     let mut arg_iter = args;
     while let Some(arg) = arg_iter.next() {
         if arg == "--output" {
             output_path = Some(arg_iter.next().unwrap_or_else(|| usage()));
+        } else if arg == "--trace" {
+            emit_trace = true;
         } else if entry_rule.is_empty() {
             entry_rule = arg;
         } else {
@@ -34,6 +37,7 @@ fn main() {
         &ConvertOptions {
             entry_rule,
             function_name: "grammar".to_string(),
+            emit_trace,
             ..Default::default()
         },
     ) {

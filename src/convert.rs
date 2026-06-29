@@ -11,6 +11,7 @@ pub struct ConvertOptions {
     pub entry_rule: String,
     pub function_name: String,
     pub emit_comments: bool,
+    pub emit_trace: bool,
 }
 
 impl Default for ConvertOptions {
@@ -19,6 +20,7 @@ impl Default for ConvertOptions {
             entry_rule: String::new(),
             function_name: "grammar".to_string(),
             emit_comments: true,
+            emit_trace: false,
         }
     }
 }
@@ -76,6 +78,7 @@ fn convert_with_table(
             function_name: options.function_name.clone(),
             source: source.map(str::to_string),
             emit_comments: options.emit_comments,
+            emit_trace: options.emit_trace,
         },
     )
     .map_err(|e| vec![e])
@@ -123,6 +126,7 @@ pub fn convert_with_warnings(
             function_name: options.function_name.clone(),
             source: None,
             emit_comments: options.emit_comments,
+            emit_trace: options.emit_trace,
         },
     )
     .map_err(|e| vec![e])?;
@@ -186,5 +190,56 @@ other = { "world" }
         .unwrap();
         assert!(code.contains("fn repeat_ws"));
         assert!(!code.contains("// Pest inserts implicit whitespace"));
+    }
+
+    #[test]
+    fn emit_trace_false_omits_trace_markers() {
+        let src = include_str!("../tests/fixtures/simple.pest");
+        let code = convert_pest_source(
+            src,
+            &ConvertOptions {
+                entry_rule: "main".to_string(),
+                emit_trace: false,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert!(!code.contains(".trace()"));
+        assert!(!code.contains("WithTrace"));
+    }
+
+    #[test]
+    fn emit_trace_true_adds_reference_site_markers() {
+        let src = include_str!("../tests/fixtures/simple.pest");
+        let code = convert_pest_source(
+            src,
+            &ConvertOptions {
+                entry_rule: "main".to_string(),
+                emit_trace: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert!(code.contains("use marser::trace::WithTrace;"));
+        assert!(code.contains("bind!(item.clone(), *item_val).trace()"));
+        assert!(code.contains("ws.clone().trace()"));
+        assert!(code.contains("repeat_ws("));
+        assert!(code.contains("ws.clone().trace(), bind!(item.clone(), *item_val).trace()"));
+        assert!(!code.contains(".erase_types().trace()"));
+    }
+
+    #[test]
+    fn emit_trace_skips_silent_rule_references() {
+        let src = include_str!("../tests/fixtures/simple.pest");
+        let code = convert_pest_source(
+            src,
+            &ConvertOptions {
+                entry_rule: "main".to_string(),
+                emit_trace: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert!(!code.contains("bind!(newline.clone(), ?newline_val).trace()"));
     }
 }
