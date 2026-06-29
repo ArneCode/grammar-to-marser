@@ -1090,6 +1090,13 @@ impl<'a> Generator<'a> {
                  }\n\n",
             );
         }
+        if self.options.emit_comments {
+            out.push_str(
+                "// Typed parse tree returned by `grammar()`. Each Pest rule becomes a variant;\n\
+                 // `#field = ...` bindings become struct fields, and atomic (`@`) leaves store\n\
+                 // their matched slice as `value`.\n",
+            );
+        }
         out.push_str(&emit_parsed_enum(&self.table.rules, &self.matcher_only));
         out.push_str(&format!(
             "pub fn {}<'src>() -> impl Parser<'src, &'src str, Output = Parsed<'src>> + Clone {{\n",

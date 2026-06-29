@@ -28,6 +28,9 @@ where
     optional((item.clone(), many((ws, item))))
 }
 
+// Typed parse tree returned by `grammar()`. Each Pest rule becomes a variant;
+// `#field = ...` bindings become struct fields, and atomic (`@`) leaves store
+// their matched slice as `value`.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Parsed<'src> {
     main {

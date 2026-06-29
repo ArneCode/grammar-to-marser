@@ -26,6 +26,7 @@ where
     optional((item.clone(), many((ws, item))))
 }
 
+// Typed parse tree returned by `grammar()`. Each Pest rule becomes a variant;
 #[derive(Debug, Clone, PartialEq)]
 pub enum Parsed<'src> {
     expr {
