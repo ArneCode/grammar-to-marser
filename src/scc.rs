@@ -18,7 +18,14 @@ pub fn tarjan_scc(graph: &SpecializationGraph) -> ConvertResult<Vec<Scc>> {
     let mut lowlink: HashMap<SymKey, usize> = HashMap::new();
     let mut sccs = Vec::new();
 
-    for node in graph.nodes.iter() {
+    let mut nodes: Vec<SymKey> = graph.nodes.iter().cloned().collect();
+    nodes.sort_by(|left, right| {
+        left.rule
+            .cmp(&right.rule)
+            .then_with(|| format!("{:?}", left.context).cmp(&format!("{:?}", right.context)))
+    });
+
+    for node in &nodes {
         if !indices.contains_key(node) {
             strongconnect(
                 node,
@@ -58,7 +65,13 @@ fn strongconnect(
     on_stack.insert(v.clone());
 
     if let Some(neighbors) = graph.edges.get(v) {
-        for w in neighbors {
+        let mut neighbors: Vec<SymKey> = neighbors.iter().cloned().collect();
+        neighbors.sort_by(|left, right| {
+            left.rule
+                .cmp(&right.rule)
+                .then_with(|| format!("{:?}", left.context).cmp(&format!("{:?}", right.context)))
+        });
+        for w in &neighbors {
             if !indices.contains_key(w) {
                 strongconnect(w, graph, index, stack, on_stack, indices, lowlink, sccs);
                 let w_low = lowlink[w];
@@ -83,6 +96,11 @@ fn strongconnect(
             }
         }
         members.reverse();
+        members.sort_by(|left, right| {
+            left.rule
+                .cmp(&right.rule)
+                .then_with(|| format!("{:?}", left.context).cmp(&format!("{:?}", right.context)))
+        });
         let has_self_loop = graph.edges.get(v).is_some_and(|deps| deps.contains(v));
         sccs.push(Scc {
             members,

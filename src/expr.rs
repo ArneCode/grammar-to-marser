@@ -74,6 +74,10 @@ pub enum Expr {
     Choice(Vec<Expr>),
     Prefix { op: PrefixOp, expr: Box<Expr> },
     Postfix { expr: Box<Expr>, op: PostfixOp },
+    Tagged {
+        tag: String,
+        expr: Box<Expr>,
+    },
 }
 
 impl Expr {
@@ -91,7 +95,7 @@ impl Expr {
                     item.collect_rule_refs(refs);
                 }
             }
-            Self::Prefix { expr, .. } | Self::Postfix { expr, .. } => {
+            Self::Prefix { expr, .. } | Self::Postfix { expr, .. } | Self::Tagged { expr, .. } => {
                 expr.collect_rule_refs(refs);
             }
             Self::Empty
@@ -120,7 +124,9 @@ impl Expr {
             Self::Sequence(items) | Self::Choice(items) => {
                 items.iter().find_map(|item| item.has_unsupported())
             }
-            Self::Prefix { expr, .. } | Self::Postfix { expr, .. } => expr.has_unsupported(),
+            Self::Prefix { expr, .. } | Self::Postfix { expr, .. } | Self::Tagged { expr, .. } => {
+                expr.has_unsupported()
+            }
         }
     }
 }

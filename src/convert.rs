@@ -229,6 +229,25 @@ other = { "world" }
     }
 
     #[test]
+    fn generates_parsed_enum_output() {
+        let src = include_str!("../tests/fixtures/simple.pest");
+        let code = convert_pest_source(
+            src,
+            &ConvertOptions {
+                entry_rule: "main".to_string(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert!(code.contains("pub enum Parsed<'src>"));
+        assert!(code.contains("Output = Parsed<'src>>"));
+        assert!(code.contains("main {"));
+        assert!(code.contains("item_val: Vec<Box<Parsed<'src>>>"));
+        assert!(code.contains("ident { value: &'src str }"));
+        assert!(code.contains("bind_slice!"));
+    }
+
+    #[test]
     fn emit_trace_skips_silent_rule_references() {
         let src = include_str!("../tests/fixtures/simple.pest");
         let code = convert_pest_source(

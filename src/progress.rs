@@ -27,6 +27,7 @@ pub fn is_non_failing(
                 false
             }
         }
+        Expr::Tagged { expr, .. } => is_non_failing(expr, rules, trace),
         Expr::Sequence(items) => items.iter().all(|item| is_non_failing(item, rules, trace)),
         Expr::Choice(items) => items.iter().any(|item| is_non_failing(item, rules, trace)),
         Expr::Prefix { op, .. } => matches!(op, PrefixOp::NegativePredicate),
@@ -64,6 +65,7 @@ pub fn is_non_progressing(
                 false
             }
         }
+        Expr::Tagged { expr, .. } => is_non_progressing(expr, rules, trace),
         Expr::Sequence(items) => items
             .iter()
             .all(|item| is_non_progressing(item, rules, trace)),

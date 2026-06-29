@@ -10,6 +10,10 @@ use crate::ast::PrefixOp;
 use crate::error::ConvertError;
 use crate::expr::{Builtin, Expr, MatchingContext, SymKey};
 use crate::normalize::{RuleDef, RuleTable};
+use crate::output::{
+    analyze_rule_output, build_field_init, emit_parsed_enum, field_sigil_map, variant_name,
+    BindSigil, FieldKey, FieldKind, RuleOutputSpec,
+};
 use crate::scc::{
     Scc, condensation_topo, is_cyclic, partition_scc_for_recursion, recursive_arity, tarjan_scc,
 };
@@ -53,146 +57,6 @@ fn agent_debug_log(hypothesis_id: &str, location: &str, message: &str, data: Str
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum CodegenMode {
     Matcher,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum BindSigil {
-    Plain,
-    Optional,
-    Multiple,
-}
-
-impl BindSigil {
-    fn prefix(self) -> &'static str {
-        match self {
-            Self::Plain => "",
-            Self::Optional => "?",
-            Self::Multiple => "*",
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum OccurrenceClass {
-    Plain,
-    Optional,
-    Multiple,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum WrappingPostfix {
-    Optional,
-    Repeat,
-}
-
-fn occurrence_class(wrapping: Option<WrappingPostfix>) -> OccurrenceClass {
-    match wrapping {
-        Some(WrappingPostfix::Optional) => OccurrenceClass::Optional,
-        Some(WrappingPostfix::Repeat) => OccurrenceClass::Multiple,
-        None => OccurrenceClass::Plain,
-    }
-}
-
-fn collect_bind_occurrences(
-    expr: &Expr,
-    in_lookahead: bool,
-    wrapping: Option<WrappingPostfix>,
-    out: &mut HashMap<String, Vec<OccurrenceClass>>,
-) {
-    match expr {
-        Expr::RuleRef(name) => {
-            if !in_lookahead {
-                out.entry(name.clone())
-                    .or_default()
-                    .push(occurrence_class(wrapping));
-            }
-        }
-        Expr::Prefix { op, expr } => {
-            let in_la = matches!(
-                op,
-                PrefixOp::PositivePredicate | PrefixOp::NegativePredicate
-            );
-            collect_bind_occurrences(expr, in_lookahead || in_la, wrapping, out);
-        }
-        Expr::Postfix { expr, op } => {
-            let inner_wrapping = match op {
-                PostfixOp::Optional => Some(WrappingPostfix::Optional),
-                PostfixOp::Repeat
-                | PostfixOp::RepeatOnce
-                | PostfixOp::RepeatExact(_)
-                | PostfixOp::RepeatMin(_)
-                | PostfixOp::RepeatMax(_)
-                | PostfixOp::RepeatMinMax(_, _) => Some(WrappingPostfix::Repeat),
-            };
-            collect_bind_occurrences(expr, in_lookahead, inner_wrapping, out);
-        }
-        Expr::Sequence(items) => {
-            for item in items {
-                collect_bind_occurrences(item, in_lookahead, wrapping, out);
-            }
-        }
-        Expr::Choice(items) => {
-            let per_alt: Vec<HashMap<String, Vec<OccurrenceClass>>> = items
-                .iter()
-                .map(|item| {
-                    let mut alt_map = HashMap::new();
-                    collect_bind_occurrences(item, in_lookahead, wrapping, &mut alt_map);
-                    alt_map
-                })
-                .collect();
-            let num_alts = items.len();
-            let mut all_names = HashSet::new();
-            for alt_map in &per_alt {
-                all_names.extend(alt_map.keys().cloned());
-            }
-            for name in all_names {
-                let alts_containing = per_alt.iter().filter(|m| m.contains_key(&name)).count();
-                if alts_containing < num_alts {
-                    out.entry(name).or_default().push(OccurrenceClass::Optional);
-                } else {
-                    for alt_map in &per_alt {
-                        if let Some(classes) = alt_map.get(&name) {
-                            out.entry(name.clone()).or_default().extend(classes.iter().copied());
-                        }
-                    }
-                }
-            }
-        }
-        Expr::Empty
-        | Expr::Builtin(_)
-        | Expr::Literal(_)
-        | Expr::InsensitiveLiteral(_)
-        | Expr::Range { .. } => {}
-    }
-}
-
-fn dominant_sigil_from_occurrences(classes: &[OccurrenceClass]) -> BindSigil {
-    if classes.is_empty() {
-        return BindSigil::Plain;
-    }
-    if classes
-        .iter()
-        .any(|class| matches!(class, OccurrenceClass::Multiple))
-    {
-        return BindSigil::Multiple;
-    }
-    if classes.len() > 1 {
-        return BindSigil::Multiple;
-    }
-    match classes[0] {
-        OccurrenceClass::Plain => BindSigil::Plain,
-        OccurrenceClass::Optional => BindSigil::Optional,
-        OccurrenceClass::Multiple => BindSigil::Multiple,
-    }
-}
-
-fn dominant_sigil_map(expr: &Expr) -> HashMap<String, BindSigil> {
-    let mut occurrences: HashMap<String, Vec<OccurrenceClass>> = HashMap::new();
-    collect_bind_occurrences(expr, false, None, &mut occurrences);
-    occurrences
-        .into_iter()
-        .map(|(name, classes)| (name, dominant_sigil_from_occurrences(&classes)))
-        .collect()
 }
 
 fn net_brace_delta(line: &str) -> i32 {
@@ -296,17 +160,24 @@ enum BodyLayout {
 
 const WRAPPER_FN_BODY_INDENT: &str = "    ";
 
-/// Replace each `bind!(...)` with a parseable placeholder so `syn` / `prettyplease` can format
-/// the surrounding expression, then restore the original `bind!` sites afterward.
+/// Replace each `bind!(...)` / `bind_slice!(...)` with a parseable placeholder so `syn` /
+/// `prettyplease` can format the surrounding expression, then restore afterward.
 fn substitute_bind_placeholders(source: &str) -> (String, Vec<String>) {
     let mut result = String::new();
     let mut originals = Vec::new();
     let bytes = source.as_bytes();
     let mut index = 0;
     while index < bytes.len() {
-        if source[index..].starts_with("bind!(") {
+        let bind_macro = if source[index..].starts_with("bind!(") {
+            Some("bind!(")
+        } else if source[index..].starts_with("bind_slice!(") {
+            Some("bind_slice!(")
+        } else {
+            None
+        };
+        if let Some(macro_prefix) = bind_macro {
             let start = index;
-            index += "bind!(".len();
+            index += macro_prefix.len();
             let mut depth = 1i32;
             while index < bytes.len() && depth > 0 {
                 match bytes[index] {
@@ -604,6 +475,9 @@ fn collect_import_needs_expr(
         Expr::Postfix { expr, op } => {
             collect_postfix_import_needs(expr, op, ctx, table, out, in_lookahead);
         }
+        Expr::Tagged { expr, .. } => {
+            collect_import_needs_expr(expr, ctx, table, out, in_lookahead);
+        }
     }
 }
 
@@ -711,6 +585,16 @@ fn push_braced_use_list(out: &mut String, path: &str, items: &[&str]) {
         out.push_str(",\n");
     }
     out.push_str("};\n");
+}
+
+fn sorted_scc_members(members: &[SymKey]) -> Vec<SymKey> {
+    let mut sorted = members.to_vec();
+    sorted.sort_by(|left, right| {
+        left.rule
+            .cmp(&right.rule)
+            .then_with(|| format!("{:?}", left.context).cmp(&format!("{:?}", right.context)))
+    });
+    sorted
 }
 
 struct Generator<'a> {
@@ -1024,8 +908,9 @@ impl<'a> Generator<'a> {
                  }\n\n",
             );
         }
+        out.push_str(&emit_parsed_enum(&self.table.rules));
         out.push_str(&format!(
-            "pub fn {}<'src>() -> impl Parser<'src, &'src str, Output = ()> + Clone {{\n",
+            "pub fn {}<'src>() -> impl Parser<'src, &'src str, Output = Parsed<'src>> + Clone {{\n",
             sanitize_ident(&self.options.function_name)
         ));
 
@@ -1048,8 +933,8 @@ impl<'a> Generator<'a> {
             if is_cyclic(scc) {
                 self.emit_recursive_scc(&mut out, scc)?;
             } else {
-                for member in &scc.members {
-                    self.emit_acyclic_sym(&mut out, member)?;
+                for member in sorted_scc_members(&scc.members) {
+                    self.emit_acyclic_sym(&mut out, &member)?;
                 }
             }
         }
@@ -1264,6 +1149,28 @@ impl<'a> Generator<'a> {
         Ok(())
     }
 
+    fn rule_map_refs(&self) -> HashMap<String, &RuleDef> {
+        self.graph
+            .rule_map
+            .iter()
+            .map(|(name, rule)| (name.clone(), rule))
+            .collect()
+    }
+
+    fn build_variant_construction(rule_name: &str, spec: &RuleOutputSpec) -> String {
+        let variant = variant_name(rule_name);
+        if spec.is_leaf {
+            return format!("Parsed::{variant} {{ value }}");
+        }
+        let fields = spec
+            .fields
+            .iter()
+            .map(|field| format!("{}: {}", field.name, build_field_init(field, &field.name)))
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!("Parsed::{variant} {{ {fields} }}")
+    }
+
     fn gen_body(
         &self,
         sym: &SymKey,
@@ -1272,13 +1179,17 @@ impl<'a> Generator<'a> {
         layout: BodyLayout,
     ) -> Result<String, ConvertError> {
         let rule = &self.graph.rule_map[&sym.rule];
-        let sigil_map = dominant_sigil_map(&rule.expr);
+        let rule_map = self.rule_map_refs();
+        let spec = analyze_rule_output(&rule.expr, &rule_map);
+        let sigil_map = field_sigil_map(&spec);
         let inner = self.gen_expr(
             &rule.expr,
             sym.context,
             recursive_members,
             CodegenMode::Matcher,
+            &spec,
             &sigil_map,
+            false,
             false,
         );
         agent_debug_log(
@@ -1294,18 +1205,31 @@ impl<'a> Generator<'a> {
             BodyLayout::AssignmentContinuation => base_column + 4,
             BodyLayout::Block => 4,
         };
-        let formatted_grammar = format_expr_str(&inner, inner_column)?;
         let close_indent = match layout {
             BodyLayout::AssignmentContinuation => " ".repeat(base_column),
             BodyLayout::Block => String::new(),
         };
+        let formatted_grammar = if spec.is_leaf {
+            let formatted_inner = format_expr_str(&inner, inner_column + 4)?;
+            format!(
+                "bind_slice!(\n{formatted_inner},\n{}value as &'src str\n{close_indent})",
+                " ".repeat(inner_column)
+            )
+        } else {
+            format_expr_str(&inner, inner_column)?
+        };
+        let construction = Self::build_variant_construction(&sym.rule, &spec);
         let capture = format!(
-            "capture!(\n{formatted_grammar} => ()\n{close_indent}).erase_types()"
+            "capture!(\n{formatted_grammar} => {construction}\n{close_indent})"
         );
         Ok(match layout {
             BodyLayout::AssignmentContinuation => capture,
             BodyLayout::Block => indent_lines(&capture, base_column),
         })
+    }
+
+    fn trace_bind_slice(&self, reference: &str, sigil_prefix: &str, bind_name: &str) -> String {
+        format!("bind_slice!({reference}, {sigil_prefix}{bind_name} as &'src str)")
     }
 
     fn gen_expr(
@@ -1314,8 +1238,10 @@ impl<'a> Generator<'a> {
         ctx: MatchingContext,
         recursive_members: Option<&[SymKey]>,
         mode: CodegenMode,
-        sigil_map: &HashMap<String, BindSigil>,
+        spec: &RuleOutputSpec,
+        sigil_map: &HashMap<FieldKey, BindSigil>,
         in_lookahead: bool,
+        suppress_bind: bool,
     ) -> String {
         match (expr, mode) {
             (Expr::Empty, _) => "()".to_string(),
@@ -1323,11 +1249,71 @@ impl<'a> Generator<'a> {
             (Expr::InsensitiveLiteral(s), _) => self.gen_insensitive_matcher(s),
             (Expr::Builtin(b), _) => self.gen_builtin_matcher(*b),
             (Expr::Range { start, end }, _) => format!("{start:?}..={end:?}"),
-            (Expr::RuleRef(name), mode) => {
-                self.gen_rule_ref(name, ctx, recursive_members, mode, sigil_map, in_lookahead)
+            (Expr::RuleRef(name), mode) => self.gen_rule_ref(
+                name,
+                ctx,
+                recursive_members,
+                mode,
+                sigil_map,
+                in_lookahead,
+                suppress_bind,
+            ),
+            (Expr::Tagged { tag, expr }, _) => {
+                if in_lookahead {
+                    return self.gen_expr(
+                        expr,
+                        ctx,
+                        recursive_members,
+                        mode,
+                        spec,
+                        sigil_map,
+                        true,
+                        suppress_bind,
+                    );
+                }
+                let key = FieldKey::Tag(tag.clone());
+                let sigil = sigil_map.get(&key).copied().unwrap_or(BindSigil::Plain);
+                let bind_name = sanitize_ident(tag);
+                let inner_matcher = self.gen_expr(
+                    expr,
+                    ctx,
+                    recursive_members,
+                    mode,
+                    spec,
+                    sigil_map,
+                    false,
+                    true,
+                );
+                let field_kind = spec
+                    .fields
+                    .iter()
+                    .find(|field| field.key == key)
+                    .map(|field| field.kind)
+                    .unwrap_or(FieldKind::Slice);
+                match field_kind {
+                    FieldKind::ParsedChild => {
+                        let rule_name = crate::output::unwrap_to_rule_ref(expr).expect(
+                            "tagged parsed-child field must refer to a rule",
+                        );
+                        let rule = &self.graph.rule_map[rule_name];
+                        self.trace_bind(&inner_matcher, sigil.prefix(), &bind_name, rule)
+                    }
+                    FieldKind::Slice => {
+                        self.trace_bind_slice(&inner_matcher, sigil.prefix(), &bind_name)
+                    }
+                }
             }
             (Expr::Sequence(items), mode) => {
-                self.gen_sequence(items, ctx, recursive_members, mode, sigil_map, in_lookahead)
+                self.gen_sequence(
+                    items,
+                    ctx,
+                    recursive_members,
+                    mode,
+                    spec,
+                    sigil_map,
+                    in_lookahead,
+                    suppress_bind,
+                )
             }
             (Expr::Choice(items), mode) => {
                 let parts: Vec<_> = items
@@ -1338,8 +1324,10 @@ impl<'a> Generator<'a> {
                             ctx,
                             recursive_members,
                             mode,
+                            spec,
                             sigil_map,
                             in_lookahead,
+                            suppress_bind,
                         )
                     })
                     .collect();
@@ -1355,24 +1343,26 @@ impl<'a> Generator<'a> {
                     ctx,
                     recursive_members,
                     CodegenMode::Matcher,
+                    spec,
                     sigil_map,
                     in_lookahead || in_la,
+                    suppress_bind,
                 );
                 match op {
                     PrefixOp::PositivePredicate => format!("positive_lookahead({inner})"),
                     PrefixOp::NegativePredicate => format!("negative_lookahead({inner})"),
                 }
             }
-            (Expr::Postfix { expr, op }, _) => {
-                self.gen_postfix(
-                    expr,
-                    op,
-                    ctx,
-                    recursive_members,
-                    sigil_map,
-                    in_lookahead,
-                )
-            }
+            (Expr::Postfix { expr, op }, _) => self.gen_postfix(
+                expr,
+                op,
+                ctx,
+                recursive_members,
+                spec,
+                sigil_map,
+                in_lookahead,
+                suppress_bind,
+            ),
         }
     }
 
@@ -1413,8 +1403,10 @@ impl<'a> Generator<'a> {
         ctx: MatchingContext,
         recursive_members: Option<&[SymKey]>,
         mode: CodegenMode,
-        sigil_map: &HashMap<String, BindSigil>,
+        spec: &RuleOutputSpec,
+        sigil_map: &HashMap<FieldKey, BindSigil>,
         in_lookahead: bool,
+        suppress_bind: bool,
     ) -> String {
         let has_ws = self.table.has_whitespace || self.table.has_comment;
         let mut parts = Vec::new();
@@ -1427,8 +1419,10 @@ impl<'a> Generator<'a> {
                 ctx,
                 recursive_members,
                 mode,
+                spec,
                 sigil_map,
                 in_lookahead,
+                suppress_bind,
             ));
         }
         if has_ws && ctx == MatchingContext::NormalWs && items.len() > 1 {
@@ -1457,16 +1451,20 @@ impl<'a> Generator<'a> {
         op: &PostfixOp,
         ctx: MatchingContext,
         recursive_members: Option<&[SymKey]>,
-        sigil_map: &HashMap<String, BindSigil>,
+        spec: &RuleOutputSpec,
+        sigil_map: &HashMap<FieldKey, BindSigil>,
         in_lookahead: bool,
+        suppress_bind: bool,
     ) -> String {
         let inner = self.gen_expr(
             expr,
             ctx,
             recursive_members,
             CodegenMode::Matcher,
+            spec,
             sigil_map,
             in_lookahead,
+            suppress_bind,
         );
         match op {
             PostfixOp::Optional => format!("optional({inner})"),
@@ -1578,8 +1576,9 @@ impl<'a> Generator<'a> {
         ctx: MatchingContext,
         recursive_members: Option<&[SymKey]>,
         mode: CodegenMode,
-        sigil_map: &HashMap<String, BindSigil>,
+        sigil_map: &HashMap<FieldKey, BindSigil>,
         in_lookahead: bool,
+        suppress_bind: bool,
     ) -> String {
         if let Some(rule) = self.graph.rule_map.get(name) {
             let callee_ctx = callee_context(ctx, rule.modifier.as_ref());
@@ -1588,10 +1587,15 @@ impl<'a> Generator<'a> {
                 context: callee_ctx,
             };
             let reference = self.sym_ref(&sym, recursive_members);
-            if in_lookahead {
-                return format!("{reference}.ignore_result()");
+            if in_lookahead || suppress_bind {
+                return if in_lookahead {
+                    format!("{reference}.ignore_result()")
+                } else {
+                    reference
+                };
             }
-            let sigil = sigil_map.get(name).copied().unwrap_or(BindSigil::Plain);
+            let key = FieldKey::Rule(name.to_string());
+            let sigil = sigil_map.get(&key).copied().unwrap_or(BindSigil::Plain);
             let bind_name = bind_var_name(name);
             return self.trace_bind(&reference, sigil.prefix(), &bind_name, rule);
         }
@@ -1715,7 +1719,7 @@ fn collect_sym_deps(
                 collect_sym_deps(item, caller_context, rules, sym_names);
             }
         }
-        Expr::Prefix { expr, .. } | Expr::Postfix { expr, .. } => {
+        Expr::Prefix { expr, .. } | Expr::Postfix { expr, .. } | Expr::Tagged { expr, .. } => {
             collect_sym_deps(expr, caller_context, rules, sym_names);
         }
         _ => {}
@@ -1732,7 +1736,9 @@ fn collect_builtins(expr: &Expr, out: &mut HashSet<Builtin>) {
                 collect_builtins(item, out);
             }
         }
-        Expr::Prefix { expr, .. } | Expr::Postfix { expr, .. } => collect_builtins(expr, out),
+        Expr::Prefix { expr, .. } | Expr::Postfix { expr, .. } | Expr::Tagged { expr, .. } => {
+            collect_builtins(expr, out);
+        }
         Expr::RuleRef(name) => {
             if let Some(b) = Builtin::from_name(name) {
                 out.insert(b);
@@ -1770,7 +1776,7 @@ fn expr_has_insensitive_literal(expr: &Expr) -> bool {
         Expr::Sequence(items) | Expr::Choice(items) => {
             items.iter().any(expr_has_insensitive_literal)
         }
-        Expr::Prefix { expr, .. } | Expr::Postfix { expr, .. } => {
+        Expr::Prefix { expr, .. } | Expr::Postfix { expr, .. } | Expr::Tagged { expr, .. } => {
             expr_has_insensitive_literal(expr)
         }
         Expr::Empty
@@ -1798,7 +1804,7 @@ fn expr_needs_bounded_repeat(expr: &Expr) -> bool {
         Expr::Sequence(items) | Expr::Choice(items) => {
             items.iter().any(expr_needs_bounded_repeat)
         }
-        Expr::Prefix { expr, .. } => expr_needs_bounded_repeat(expr),
+        Expr::Prefix { expr, .. } | Expr::Tagged { expr, .. } => expr_needs_bounded_repeat(expr),
         Expr::Empty
         | Expr::Builtin(_)
         | Expr::RuleRef(_)
@@ -1819,7 +1825,7 @@ fn expr_needs_ws_repeat_helper(expr: &Expr) -> bool {
         Expr::Sequence(items) | Expr::Choice(items) => {
             items.iter().any(expr_needs_ws_repeat_helper)
         }
-        Expr::Prefix { expr, .. } => expr_needs_ws_repeat_helper(expr),
+        Expr::Prefix { expr, .. } | Expr::Tagged { expr, .. } => expr_needs_ws_repeat_helper(expr),
         Expr::Empty
         | Expr::Builtin(_)
         | Expr::RuleRef(_)
@@ -1837,7 +1843,9 @@ fn expr_needs_ws_repeat_once_helper(expr: &Expr) -> bool {
         Expr::Sequence(items) | Expr::Choice(items) => {
             items.iter().any(expr_needs_ws_repeat_once_helper)
         }
-        Expr::Prefix { expr, .. } => expr_needs_ws_repeat_once_helper(expr),
+        Expr::Prefix { expr, .. } | Expr::Tagged { expr, .. } => {
+            expr_needs_ws_repeat_once_helper(expr)
+        }
         Expr::Empty
         | Expr::Builtin(_)
         | Expr::RuleRef(_)
@@ -1973,7 +1981,10 @@ mod format_tests {
     }
 
     #[test]
-    fn dominant_sigil_marks_repeated_rule_refs_as_multiple() {
+    fn field_sigil_marks_repeated_rule_refs_as_multiple() {
+        use crate::normalize::RuleDef;
+        use crate::output::{analyze_rule_output, field_sigil_map, FieldKey};
+
         let expr = Expr::Sequence(vec![
             Expr::RuleRef("item".to_string()),
             Expr::Postfix {
@@ -1984,18 +1995,60 @@ mod format_tests {
                 op: PostfixOp::Repeat,
             },
         ]);
-        let sigils = dominant_sigil_map(&expr);
-        assert_eq!(sigils.get("item"), Some(&BindSigil::Multiple));
+        let item = RuleDef {
+            name: "item".to_string(),
+            modifier: None,
+            expr: Expr::Literal("x".to_string()),
+            docs: Vec::new(),
+        };
+        let main = RuleDef {
+            name: "main".to_string(),
+            modifier: None,
+            expr,
+            docs: Vec::new(),
+        };
+        let rules: HashMap<String, &RuleDef> = [("item".to_string(), &item), ("main".to_string(), &main)]
+            .into_iter()
+            .collect();
+        let spec = analyze_rule_output(&main.expr, &rules);
+        let sigils = field_sigil_map(&spec);
+        assert_eq!(
+            sigils.get(&FieldKey::Rule("item".to_string())),
+            Some(&BindSigil::Multiple)
+        );
     }
 
     #[test]
-    fn dominant_sigil_uses_optional_for_partial_one_of() {
+    fn field_sigil_uses_optional_for_partial_one_of() {
+        use crate::normalize::RuleDef;
+        use crate::output::{analyze_rule_output, field_sigil_map, FieldKey};
+
         let expr = Expr::Choice(vec![
             Expr::Literal(" ".to_string()),
             Expr::RuleRef("newline".to_string()),
         ]);
-        let sigils = dominant_sigil_map(&expr);
-        assert_eq!(sigils.get("newline"), Some(&BindSigil::Optional));
+        let newline = RuleDef {
+            name: "newline".to_string(),
+            modifier: None,
+            expr: Expr::Literal("\n".to_string()),
+            docs: Vec::new(),
+        };
+        let main = RuleDef {
+            name: "main".to_string(),
+            modifier: None,
+            expr,
+            docs: Vec::new(),
+        };
+        let rules: HashMap<String, &RuleDef> =
+            [("newline".to_string(), &newline), ("main".to_string(), &main)]
+                .into_iter()
+                .collect();
+        let spec = analyze_rule_output(&main.expr, &rules);
+        let sigils = field_sigil_map(&spec);
+        assert_eq!(
+            sigils.get(&FieldKey::Rule("newline".to_string())),
+            Some(&BindSigil::Optional)
+        );
     }
 
     #[test]

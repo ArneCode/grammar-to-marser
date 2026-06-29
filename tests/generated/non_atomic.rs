@@ -25,18 +25,36 @@ where
     (item.clone(), many((ws, item)))
 }
 
-pub fn grammar<'src>() -> impl Parser<'src, &'src str, Output = ()> + Clone {
+#[derive(Debug, Clone, PartialEq)]
+pub enum Parsed<'src> {
+    WHITESPACE { value: &'src str },
+    main {
+        spaced_val: Box<Parsed<'src>>,
+    },
+    spaced {
+        letter_val: Vec<Box<Parsed<'src>>>,
+    },
+    letter { value: &'src str },
+}
+
+pub fn grammar<'src>() -> impl Parser<'src, &'src str, Output = Parsed<'src>> + Clone {
     let ASCII_ALPHA = one_of(('a'..='z', 'A'..='Z'));
 
     // letter = @{ ASCII_ALPHA }
     let letter = capture!(
-        ASCII_ALPHA.clone() => ()
-    ).erase_types();
+bind_slice!(
+            ASCII_ALPHA.clone(),
+        value as &'src str
+    ) => Parsed::letter { value }
+    );
 
     // WHITESPACE = _{ " " }
     let WHITESPACE = capture!(
-        ' ' => ()
-    ).erase_types();
+bind_slice!(
+            ' ',
+        value as &'src str
+    ) => Parsed::WHITESPACE { value }
+    );
 
     let ws = many(
         WHITESPACE.clone().ignore_result()
@@ -48,13 +66,13 @@ pub fn grammar<'src>() -> impl Parser<'src, &'src str, Output = ()> + Clone {
             bind!(letter.clone(), *letter_val),
             ws.clone(),
             repeat_one_or_more_ws((' ', ws.clone(), bind!(letter.clone(), *letter_val)), ws.clone()),
-        ) => ()
-    ).erase_types();
+        ) => Parsed::spaced { letter_val: letter_val.into_iter().map(Box::new).collect() }
+    );
 
     // main = { SOI ~ spaced ~ EOI }
     let main = capture!(
-        (start_of_input(), ws.clone(), bind!(spaced.clone(), spaced_val), ws.clone(), end_of_input()) => ()
-    ).erase_types();
+        (start_of_input(), ws.clone(), bind!(spaced.clone(), spaced_val), ws.clone(), end_of_input()) => Parsed::main { spaced_val: Box::new(spaced_val) }
+    );
 
     main.clone()
 }

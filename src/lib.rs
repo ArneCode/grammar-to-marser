@@ -5,6 +5,7 @@ mod error;
 mod expr;
 mod grammar;
 mod normalize;
+mod output;
 mod progress;
 mod scc;
 mod specialize;

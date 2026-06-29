@@ -112,7 +112,7 @@ fn collect_deps(
                 collect_deps(item, caller_context, rules, deps, warnings);
             }
         }
-        Expr::Prefix { expr, .. } | Expr::Postfix { expr, .. } => {
+        Expr::Prefix { expr, .. } | Expr::Postfix { expr, .. } | Expr::Tagged { expr, .. } => {
             collect_deps(expr, caller_context, rules, deps, warnings);
         }
         _ => {}

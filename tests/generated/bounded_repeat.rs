@@ -11,11 +11,20 @@ use marser::parser::{
     ParserCombinator,
 };
 
-pub fn grammar<'src>() -> impl Parser<'src, &'src str, Output = ()> + Clone {
+#[derive(Debug, Clone, PartialEq)]
+pub enum Parsed<'src> {
+    WHITESPACE { value: &'src str },
+    main { value: &'src str },
+}
+
+pub fn grammar<'src>() -> impl Parser<'src, &'src str, Output = Parsed<'src>> + Clone {
     // WHITESPACE = _{ " " }
     let WHITESPACE = capture!(
-        ' ' => ()
-    ).erase_types();
+bind_slice!(
+            ' ',
+        value as &'src str
+    ) => Parsed::WHITESPACE { value }
+    );
 
     let ws = many(
         WHITESPACE.clone().ignore_result()
@@ -23,14 +32,17 @@ pub fn grammar<'src>() -> impl Parser<'src, &'src str, Output = ()> + Clone {
 
     // main = { SOI ~ "a"{2,4} ~ EOI }
     let main = capture!(
-        (
-            start_of_input(),
-            ws.clone(),
-            ('a', repeat((ws.clone(), 'a'), 1..=3)),
-            ws.clone(),
-            end_of_input(),
-        ) => ()
-    ).erase_types();
+bind_slice!(
+            (
+                start_of_input(),
+                ws.clone(),
+                ('a', repeat((ws.clone(), 'a'), 1..=3)),
+                ws.clone(),
+                end_of_input(),
+            ),
+        value as &'src str
+    ) => Parsed::main { value }
+    );
 
     main.clone()
 }

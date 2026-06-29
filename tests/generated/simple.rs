@@ -29,45 +29,78 @@ where
     optional((item.clone(), many((ws, item))))
 }
 
-pub fn grammar<'src>() -> impl Parser<'src, &'src str, Output = ()> + Clone {
+#[derive(Debug, Clone, PartialEq)]
+pub enum Parsed<'src> {
+    WHITESPACE {
+        newline_val: Option<Box<Parsed<'src>>>,
+    },
+    COMMENT {
+        line_comment_val: Box<Parsed<'src>>,
+    },
+    newline { value: &'src str },
+    line_comment { value: &'src str },
+    main {
+        item_val: Vec<Box<Parsed<'src>>>,
+    },
+    item {
+        ident_val: Box<Parsed<'src>>,
+        number_val: Box<Parsed<'src>>,
+    },
+    ident { value: &'src str },
+    number { value: &'src str },
+}
+
+pub fn grammar<'src>() -> impl Parser<'src, &'src str, Output = Parsed<'src>> + Clone {
     let ASCII_ALPHA = one_of(('a'..='z', 'A'..='Z'));
 
     let ASCII_ALPHANUMERIC = one_of(('a'..='z', 'A'..='Z', '0'..='9'));
 
     let ASCII_DIGIT = '0'..='9';
 
-    // ident = @{ ("_" | ASCII_ALPHA) ~ ("_" | ASCII_ALPHANUMERIC)* }
-    let ident = capture!(
-        (
-            one_of(('_', ASCII_ALPHA.clone())),
-            many(one_of(('_', ASCII_ALPHANUMERIC.clone()))),
-        ) => ()
-    ).erase_types();
-
     // number = @{ ASCII_DIGIT+ }
     let number = capture!(
-        one_or_more(ASCII_DIGIT.clone()) => ()
-    ).erase_types();
+bind_slice!(
+            one_or_more(ASCII_DIGIT.clone()),
+        value as &'src str
+    ) => Parsed::number { value }
+    );
+
+    // ident = @{ ("_" | ASCII_ALPHA) ~ ("_" | ASCII_ALPHANUMERIC)* }
+    let ident = capture!(
+bind_slice!(
+            (
+                one_of(('_', ASCII_ALPHA.clone())),
+                many(one_of(('_', ASCII_ALPHANUMERIC.clone()))),
+            ),
+        value as &'src str
+    ) => Parsed::ident { value }
+    );
 
     // newline = _{ "\n" | "\r\n" }
     let newline = capture!(
-        one_of(('\n', "\r\n")) => ()
-    ).erase_types();
+bind_slice!(
+            one_of(('\n', "\r\n")),
+        value as &'src str
+    ) => Parsed::newline { value }
+    );
 
     // WHITESPACE = _{ " " | "\t" | newline }
     let WHITESPACE = capture!(
-        one_of((' ', '\t', bind!(newline.clone(), ?newline_val))) => ()
-    ).erase_types();
+        one_of((' ', '\t', bind!(newline.clone(), ?newline_val))) => Parsed::WHITESPACE { newline_val: newline_val.map(Box::new) }
+    );
 
     // line_comment = _{ "//" ~ (!newline ~ ANY)* }
     let line_comment = capture!(
-        ("//", many((negative_lookahead(newline.clone().ignore_result()), AnyToken))) => ()
-    ).erase_types();
+bind_slice!(
+            ("//", many((negative_lookahead(newline.clone().ignore_result()), AnyToken))),
+        value as &'src str
+    ) => Parsed::line_comment { value }
+    );
 
     // COMMENT = _{ line_comment }
     let COMMENT = capture!(
-        bind!(line_comment.clone(), line_comment_val) => ()
-    ).erase_types();
+        bind!(line_comment.clone(), line_comment_val) => Parsed::COMMENT { line_comment_val: Box::new(line_comment_val) }
+    );
 
     let ws = many(
         one_of((WHITESPACE.clone().ignore_result(), COMMENT.clone().ignore_result()))
@@ -75,8 +108,8 @@ pub fn grammar<'src>() -> impl Parser<'src, &'src str, Output = ()> + Clone {
 
     // item = { ident ~ "=" ~ number }
     let item = capture!(
-        (bind!(ident.clone(), ident_val), ws.clone(), '=', ws.clone(), bind!(number.clone(), number_val)) => ()
-    ).erase_types();
+        (bind!(ident.clone(), ident_val), ws.clone(), '=', ws.clone(), bind!(number.clone(), number_val)) => Parsed::item { ident_val: Box::new(ident_val), number_val: Box::new(number_val) }
+    );
 
     // main = { SOI ~ item ~ ("," ~ item)* ~ EOI }
     let main = capture!(
@@ -88,8 +121,8 @@ pub fn grammar<'src>() -> impl Parser<'src, &'src str, Output = ()> + Clone {
             repeat_ws((',', ws.clone(), bind!(item.clone(), *item_val)), ws.clone()),
             ws.clone(),
             end_of_input(),
-        ) => ()
-    ).erase_types();
+        ) => Parsed::main { item_val: item_val.into_iter().map(Box::new).collect() }
+    );
 
     main.clone()
 }

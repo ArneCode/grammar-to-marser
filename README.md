@@ -2,7 +2,7 @@
 
 Convert [Pest](https://pest.rs/) grammars into [Marser](https://crates.io/crates/marser) parser combinators in Rust.
 
-The generated output is a single `grammar()` function that returns a Marser parser. For the chosen entry rule, the converter targets strict language equivalence with Pest: the same complete inputs are accepted or rejected. Output type is `()` everywhere — parse trees, spans, and tags are not generated.
+The generated output is a single `grammar()` function that returns a Marser parser. For the chosen entry rule, the converter targets strict language equivalence with Pest: the same complete inputs are accepted or rejected. The parser output type is a generated `Parsed<'src>` enum with one variant per rule.
 
 **Try it in the browser:** [https://pest-to-marser.arnedebo.com](https://pest-to-marser.arnedebo.com) — paste a grammar, preview the Rust output, download a Cargo project, or share a link.
 
@@ -51,13 +51,13 @@ Generate a parser for the `expr` rule:
 pest-to-marser calc.pest expr
 ```
 
-The output is Rust source defining `pub fn grammar<'src>() -> impl Parser<'src, &'src str, Output = ()> + Clone`. Use it with Marser's `Parser::parse_str` or `parse_whole_input`:
+The output is Rust source defining `pub fn grammar<'src>() -> impl Parser<'src, &'src str, Output = Parsed<'src>> + Clone`, plus a `Parsed<'src>` enum. Each rule becomes a variant; fields come from binds inside that rule. Nested rule values are `Box<Parsed<'src>>`; leaf rules capture their matched slice as `&'src str`. Use it with Marser's `Parser::parse_str` or `parse_whole_input`:
 
 ```rust
 use marser::parser::Parser;
 
 let parser = grammar();
-parser.parse_whole_input("1 + 2 * 3").unwrap();
+let parsed = parser.parse_whole_input("1 + 2 * 3").unwrap();
 ```
 
 ## Library API
@@ -88,6 +88,8 @@ The converter handles a practical subset of Pest, including:
 - Builtins: `ASCII_ALPHA`, `ASCII_ALPHANUMERIC`, `ASCII_DIGIT`, `ANY`, `SOI`, `EOI`
 - Implicit whitespace via `WHITESPACE` and `COMMENT` rules
 - Right recursion and mutual recursion (via Marser's `recursive` helpers)
+- Typed `Parsed<'src>` output with one enum variant per rule
+- Pest node tags as field names; tagged non-rule matchers become `&'src str` slices
 
 ## Limitations
 
@@ -95,8 +97,7 @@ The following are **not** supported and produce conversion errors:
 
 - Left recursion
 - Pest stack features (`PUSH`, `POP`, `DROP`, `PEEK`, `PEEK_ALL`)
-- `Pair` / `Rule` enum output, spans, tags, or token preservation
-- Memoization (`.memoized()`)
+- Pest-style `Pair` trees, spans, or memoization (`.memoized()`)
 - Mutual recursion groups larger than Marser's `recursive12` limit
 
 Repetition and whitespace rules are validated with Pest-style progress checks. Unsupported constructs that could affect matching semantics are hard errors, not warnings.

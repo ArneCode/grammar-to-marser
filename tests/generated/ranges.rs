@@ -13,11 +13,26 @@ use marser::parser::{
     ParserCombinator,
 };
 
-pub fn grammar<'src>() -> impl Parser<'src, &'src str, Output = ()> + Clone {
+#[derive(Debug, Clone, PartialEq)]
+pub enum Parsed<'src> {
+    WHITESPACE { value: &'src str },
+    main {
+        hex_color_val: Box<Parsed<'src>>,
+    },
+    hex_color {
+        hex_digit_val: Vec<Box<Parsed<'src>>>,
+    },
+    hex_digit { value: &'src str },
+}
+
+pub fn grammar<'src>() -> impl Parser<'src, &'src str, Output = Parsed<'src>> + Clone {
     // WHITESPACE = _{ " " }
     let WHITESPACE = capture!(
-        ' ' => ()
-    ).erase_types();
+bind_slice!(
+            ' ',
+        value as &'src str
+    ) => Parsed::WHITESPACE { value }
+    );
 
     let ws = many(
         WHITESPACE.clone().ignore_result()
@@ -25,8 +40,11 @@ pub fn grammar<'src>() -> impl Parser<'src, &'src str, Output = ()> + Clone {
 
     // hex_digit = _{ '0'..'9' | 'a'..'f' | 'A'..'F' }
     let hex_digit = capture!(
-        one_of(('0'..='9', 'a'..='f', 'A'..='F')) => ()
-    ).erase_types();
+bind_slice!(
+            one_of(('0'..='9', 'a'..='f', 'A'..='F')),
+        value as &'src str
+    ) => Parsed::hex_digit { value }
+    );
 
     // hex_color = { "#" ~ hex_digit{6} }
     let hex_color = capture!(
@@ -34,13 +52,13 @@ pub fn grammar<'src>() -> impl Parser<'src, &'src str, Output = ()> + Clone {
             '#',
             ws.clone(),
             (bind!(hex_digit.clone(), *hex_digit_val), repeat((ws.clone(), bind!(hex_digit.clone(), *hex_digit_val)), 5..=5)),
-        ) => ()
-    ).erase_types();
+        ) => Parsed::hex_color { hex_digit_val: hex_digit_val.into_iter().map(Box::new).collect() }
+    );
 
     // main = { SOI ~ hex_color ~ EOI }
     let main = capture!(
-        (start_of_input(), ws.clone(), bind!(hex_color.clone(), hex_color_val), ws.clone(), end_of_input()) => ()
-    ).erase_types();
+        (start_of_input(), ws.clone(), bind!(hex_color.clone(), hex_color_val), ws.clone(), end_of_input()) => Parsed::main { hex_color_val: Box::new(hex_color_val) }
+    );
 
     main.clone()
 }

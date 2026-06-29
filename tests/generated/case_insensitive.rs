@@ -16,23 +16,38 @@ fn ci_ch<'src, MRes>(c: char) -> impl Matcher<'src, &'src str, MRes> + Clone {
     one_of((c.to_ascii_lowercase(), c.to_ascii_uppercase()))
 }
 
-pub fn grammar<'src>() -> impl Parser<'src, &'src str, Output = ()> + Clone {
+#[derive(Debug, Clone, PartialEq)]
+pub enum Parsed<'src> {
+    WHITESPACE { value: &'src str },
+    main {
+        ident_val: Box<Parsed<'src>>,
+    },
+    ident { value: &'src str },
+}
+
+pub fn grammar<'src>() -> impl Parser<'src, &'src str, Output = Parsed<'src>> + Clone {
     let ASCII_ALPHA = one_of(('a'..='z', 'A'..='Z'));
 
     let ASCII_ALPHANUMERIC = one_of(('a'..='z', 'A'..='Z', '0'..='9'));
 
     // ident = @{ ("_" | ASCII_ALPHA) ~ ("_" | ASCII_ALPHANUMERIC)* }
     let ident = capture!(
-        (
-            one_of(('_', ASCII_ALPHA.clone())),
-            many(one_of(('_', ASCII_ALPHANUMERIC.clone()))),
-        ) => ()
-    ).erase_types();
+bind_slice!(
+            (
+                one_of(('_', ASCII_ALPHA.clone())),
+                many(one_of(('_', ASCII_ALPHANUMERIC.clone()))),
+            ),
+        value as &'src str
+    ) => Parsed::ident { value }
+    );
 
     // WHITESPACE = _{ " " }
     let WHITESPACE = capture!(
-        ' ' => ()
-    ).erase_types();
+bind_slice!(
+            ' ',
+        value as &'src str
+    ) => Parsed::WHITESPACE { value }
+    );
 
     let ws = many(
         WHITESPACE.clone().ignore_result()
@@ -50,8 +65,8 @@ pub fn grammar<'src>() -> impl Parser<'src, &'src str, Output = ()> + Clone {
             bind!(ident.clone(), ident_val),
             ws.clone(),
             end_of_input(),
-        ) => ()
-    ).erase_types();
+        ) => Parsed::main { ident_val: Box::new(ident_val) }
+    );
 
     main.clone()
 }

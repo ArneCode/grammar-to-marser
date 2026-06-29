@@ -177,7 +177,7 @@ Tracing adds runtime overhead; use \`parser-trace\` for debugging rather than pr
   const nextStepsSection = `
 ## Next steps
 
-The generated parser only checks that input matches your grammar (\`capture!(… => ())\`). Typical follow-ups:
+The generated parser returns a typed \`Parsed<'src>\` enum with one variant per rule. Typical follow-ups:
 
 1. **Build an AST** — \`src/grammar.rs\` already uses \`bind!\` for rule references. Change each \`capture!\` output from \`()\` to a real type and assemble values from those binds. See [Capture and Binds](https://docs.rs/marser/latest/marser/guide/capture_and_binds/index.html) and the [worked JSON example](https://docs.rs/marser/latest/marser/guide/worked_json_example/index.html).
 2. **Improve diagnostics** — use \`.with_label(...)\` on rules, \`add_error_info\`, and \`annotate-snippets\` output (already enabled in \`Cargo.toml\`). See [Errors and Recovery](https://docs.rs/marser/latest/marser/guide/errors_and_recovery/index.html).

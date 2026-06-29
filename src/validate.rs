@@ -49,7 +49,9 @@ fn collect_repetition_errors(
                 collect_repetition_errors(item, rule_name, rules, errors);
             }
         }
-        Expr::Prefix { expr, .. } => collect_repetition_errors(expr, rule_name, rules, errors),
+        Expr::Prefix { expr, .. } | Expr::Tagged { expr, .. } => {
+            collect_repetition_errors(expr, rule_name, rules, errors)
+        }
         _ => {}
     }
 }
@@ -177,7 +179,7 @@ fn find_left_recursion(
         Expr::Choice(items) => items
             .iter()
             .find_map(|item| find_left_recursion(item, rules, trace)),
-        Expr::Postfix { expr, .. } | Expr::Prefix { expr, .. } => {
+        Expr::Postfix { expr, .. } | Expr::Prefix { expr, .. } | Expr::Tagged { expr, .. } => {
             find_left_recursion(expr, rules, trace)
         }
         _ => None,

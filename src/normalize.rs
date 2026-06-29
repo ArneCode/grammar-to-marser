@@ -214,11 +214,18 @@ fn normalize_term(term: &Term) -> ConvertResult<Expr> {
         });
     }
 
-    if errors.is_empty() {
-        Ok(expr)
-    } else {
-        Err(errors)
+    if !errors.is_empty() {
+        return Err(errors);
     }
+
+    Ok(if let Some(tag) = &term.tag {
+        Expr::Tagged {
+            tag: tag.clone(),
+            expr: Box::new(expr),
+        }
+    } else {
+        expr
+    })
 }
 
 fn normalize_node(node: &Node) -> ConvertResult<Expr> {
@@ -272,7 +279,7 @@ fn resolve_builtins(expr: &mut Expr, defined: &std::collections::HashSet<String>
                 resolve_builtins(item, defined);
             }
         }
-        Expr::Prefix { expr, .. } | Expr::Postfix { expr, .. } => {
+        Expr::Prefix { expr, .. } | Expr::Postfix { expr, .. } | Expr::Tagged { expr, .. } => {
             resolve_builtins(expr, defined);
         }
         _ => {}

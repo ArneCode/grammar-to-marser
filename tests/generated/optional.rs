@@ -13,18 +13,27 @@ use marser::parser::{
     ParserCombinator,
 };
 
-pub fn grammar<'src>() -> impl Parser<'src, &'src str, Output = ()> + Clone {
-    let ASCII_DIGIT = '0'..='9';
+#[derive(Debug, Clone, PartialEq)]
+pub enum Parsed<'src> {
+    WHITESPACE { value: &'src str },
+    main {
+        sign_val: Option<Box<Parsed<'src>>>,
+        digits_val: Box<Parsed<'src>>,
+    },
+    sign { value: &'src str },
+    digits { value: &'src str },
+}
 
-    // digits = @{ ASCII_DIGIT+ }
-    let digits = capture!(
-        one_or_more(ASCII_DIGIT.clone()) => ()
-    ).erase_types();
+pub fn grammar<'src>() -> impl Parser<'src, &'src str, Output = Parsed<'src>> + Clone {
+    let ASCII_DIGIT = '0'..='9';
 
     // WHITESPACE = _{ " " }
     let WHITESPACE = capture!(
-        ' ' => ()
-    ).erase_types();
+bind_slice!(
+            ' ',
+        value as &'src str
+    ) => Parsed::WHITESPACE { value }
+    );
 
     let ws = many(
         WHITESPACE.clone().ignore_result()
@@ -32,8 +41,19 @@ pub fn grammar<'src>() -> impl Parser<'src, &'src str, Output = ()> + Clone {
 
     // sign = { "+" | "-" }
     let sign = capture!(
-        one_of(('+', '-')) => ()
-    ).erase_types();
+bind_slice!(
+            one_of(('+', '-')),
+        value as &'src str
+    ) => Parsed::sign { value }
+    );
+
+    // digits = @{ ASCII_DIGIT+ }
+    let digits = capture!(
+bind_slice!(
+            one_or_more(ASCII_DIGIT.clone()),
+        value as &'src str
+    ) => Parsed::digits { value }
+    );
 
     // main = { SOI ~ sign? ~ digits ~ EOI }
     let main = capture!(
@@ -45,8 +65,8 @@ pub fn grammar<'src>() -> impl Parser<'src, &'src str, Output = ()> + Clone {
             bind!(digits.clone(), digits_val),
             ws.clone(),
             end_of_input(),
-        ) => ()
-    ).erase_types();
+        ) => Parsed::main { sign_val: sign_val.map(Box::new), digits_val: Box::new(digits_val) }
+    );
 
     main.clone()
 }

@@ -26,18 +26,40 @@ where
     optional((item.clone(), many((ws, item))))
 }
 
-pub fn grammar<'src>() -> impl Parser<'src, &'src str, Output = ()> + Clone {
+#[derive(Debug, Clone, PartialEq)]
+pub enum Parsed<'src> {
+    expr {
+        term_val: Vec<Box<Parsed<'src>>>,
+    },
+    term {
+        factor_val: Vec<Box<Parsed<'src>>>,
+    },
+    factor {
+        number_val: Option<Box<Parsed<'src>>>,
+        expr_val: Option<Box<Parsed<'src>>>,
+    },
+    number { value: &'src str },
+    WHITESPACE { value: &'src str },
+}
+
+pub fn grammar<'src>() -> impl Parser<'src, &'src str, Output = Parsed<'src>> + Clone {
     let ASCII_DIGIT = '0'..='9';
 
     // number = @{ ASCII_DIGIT+ }
     let number = capture!(
-        one_or_more(ASCII_DIGIT.clone()) => ()
-    ).erase_types();
+bind_slice!(
+            one_or_more(ASCII_DIGIT.clone()),
+        value as &'src str
+    ) => Parsed::number { value }
+    );
 
     // WHITESPACE = _{ " " | "\t" }
     let WHITESPACE = capture!(
-        one_of((' ', '\t')) => ()
-    ).erase_types();
+bind_slice!(
+            one_of((' ', '\t')),
+        value as &'src str
+    ) => Parsed::WHITESPACE { value }
+    );
 
     let ws = many(
         WHITESPACE.clone().ignore_result()
@@ -53,8 +75,8 @@ pub fn grammar<'src>() -> impl Parser<'src, &'src str, Output = ()> + Clone {
             one_of((
                 bind!(number.clone(), ?number_val),
                 ('(', ws.clone(), bind!(expr.clone(), ?expr_val), ws.clone(), ')'),
-            )) => ()
-        ).erase_types();
+            )) => Parsed::factor { number_val: number_val.map(Box::new), expr_val: expr_val.map(Box::new) }
+        );
 
         // term = { factor ~ (("*" | "/") ~ factor)* }
         let term = capture!(
@@ -62,8 +84,8 @@ pub fn grammar<'src>() -> impl Parser<'src, &'src str, Output = ()> + Clone {
                 bind!(factor.clone(), *factor_val),
                 ws.clone(),
                 repeat_ws((one_of(('*', '/')), ws.clone(), bind!(factor.clone(), *factor_val)), ws.clone()),
-            ) => ()
-        ).erase_types();
+            ) => Parsed::term { factor_val: factor_val.into_iter().map(Box::new).collect() }
+        );
 
         // expr = { term ~ (("+" | "-") ~ term)* }
         capture!(
@@ -71,8 +93,8 @@ pub fn grammar<'src>() -> impl Parser<'src, &'src str, Output = ()> + Clone {
                 bind!(term.clone(), *term_val),
                 ws.clone(),
                 repeat_ws((one_of(('+', '-')), ws.clone(), bind!(term.clone(), *term_val)), ws.clone()),
-            ) => ()
-        ).erase_types()
+            ) => Parsed::expr { term_val: term_val.into_iter().map(Box::new).collect() }
+        )
     });
 
     expr.clone()
