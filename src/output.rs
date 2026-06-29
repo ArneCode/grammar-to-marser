@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::ast::{PostfixOp, PrefixOp};
+use crate::ast::{Modifier, PostfixOp, PrefixOp};
 use crate::expr::{Builtin, Expr};
 use crate::normalize::RuleDef;
 
@@ -151,7 +151,16 @@ fn is_defined_rule(name: &str, rules: &HashMap<String, &RuleDef>) -> bool {
 
 fn tagged_field_kind(expr: &Expr, rules: &HashMap<String, &RuleDef>) -> FieldKind {
     match unwrap_to_rule_ref(expr) {
-        Some(name) if is_defined_rule(name, rules) => FieldKind::ParsedChild,
+        Some(name) if is_defined_rule(name, rules) => {
+            if rules
+                .get(name)
+                .is_some_and(|rule| rule.modifier == Some(Modifier::Silent))
+            {
+                FieldKind::Slice
+            } else {
+                FieldKind::ParsedChild
+            }
+        }
         _ => FieldKind::Slice,
     }
 }
@@ -228,6 +237,12 @@ fn collect_field_occurrences(
         }
         Expr::RuleRef(name) => {
             if in_lookahead || !is_defined_rule(name, rules) {
+                return;
+            }
+            if rules
+                .get(name)
+                .is_some_and(|rule| rule.modifier == Some(Modifier::Silent))
+            {
                 return;
             }
             let key = FieldKey::Rule(name.clone());
@@ -390,12 +405,15 @@ pub fn build_field_init(field: &FieldSpec, bind_name: &str) -> String {
     }
 }
 
-pub fn emit_parsed_enum(rules: &[RuleDef]) -> String {
+pub fn emit_parsed_enum(rules: &[RuleDef], exclude: &HashSet<String>) -> String {
     let rule_map: HashMap<_, _> = rules.iter().map(|r| (r.name.clone(), r)).collect();
     let mut out = String::from("#[derive(Debug, Clone, PartialEq)]\n");
     out.push_str("pub enum Parsed<'src> {\n");
 
     for rule in rules {
+        if exclude.contains(&rule.name) {
+            continue;
+        }
         let spec = analyze_rule_output(&rule.expr, &rule_map);
         let variant = variant_name(&rule.name);
         if spec.is_leaf {
@@ -581,5 +599,17 @@ mod tests {
         assert_eq!(spec.fields[0].kind, FieldKind::Slice);
         assert_eq!(spec.fields[0].name, "op");
         assert_eq!(spec.fields[1].kind, FieldKind::ParsedChild);
+    }
+
+    #[test]
+    fn emit_parsed_enum_skips_excluded_rules() {
+        let rules = vec![
+            mk_rule("main", Expr::Literal("a".to_string())),
+            mk_rule("WHITESPACE", Expr::Literal(" ".to_string())),
+        ];
+        let excluded = HashSet::from(["WHITESPACE".to_string()]);
+        let out = emit_parsed_enum(&rules, &excluded);
+        assert!(out.contains("main {"));
+        assert!(!out.contains("WHITESPACE"));
     }
 }

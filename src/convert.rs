@@ -224,7 +224,6 @@ other = { "world" }
         assert!(code.contains("bind!(item.clone(), *item_val).trace()"));
         assert!(code.contains("ws.clone().trace()"));
         assert!(code.contains("repeat_ws("));
-        assert!(code.contains("ws.clone().trace(), bind!(item.clone(), *item_val).trace()"));
         assert!(!code.contains(".erase_types().trace()"));
     }
 
@@ -245,6 +244,69 @@ other = { "world" }
         assert!(code.contains("item_val: Vec<Box<Parsed<'src>>>"));
         assert!(code.contains("ident { value: &'src str }"));
         assert!(code.contains("bind_slice!"));
+    }
+
+    #[test]
+    fn trivia_rules_emit_matchers_not_parsers() {
+        let src = include_str!("../tests/fixtures/simple.pest");
+        let code = convert_pest_source(
+            src,
+            &ConvertOptions {
+                entry_rule: "main".to_string(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        for variant in [
+            "Parsed::WHITESPACE",
+            "Parsed::COMMENT",
+            "Parsed::newline",
+            "Parsed::line_comment",
+        ] {
+            assert!(
+                !code.contains(variant),
+                "expected trivia variant {variant} to be omitted"
+            );
+        }
+        assert!(code.contains("let newline = one_of(("));
+        assert!(!code.contains("let newline = capture!("));
+        assert!(code.contains("let WHITESPACE = one_of(("));
+        assert!(code.contains("one_of((WHITESPACE.clone(), COMMENT.clone()))"));
+        assert!(!code.contains("WHITESPACE.clone().ignore_result()"));
+    }
+
+    #[test]
+    fn dual_use_silent_tab_is_matcher() {
+        let src = include_str!("../tests/fixtures/dual_trivia.pest");
+        let code = convert_pest_source(
+            src,
+            &ConvertOptions {
+                entry_rule: "main".to_string(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert!(!code.contains("Parsed::WHITESPACE"));
+        assert!(!code.contains("Parsed::tab"));
+        assert!(code.contains("let WHITESPACE = one_of(("));
+        assert!(code.contains("let tab = "));
+        assert!(!code.contains("let tab = capture!("));
+        assert!(!code.contains("tab_val"));
+    }
+
+    #[test]
+    fn silent_content_rule_emits_matcher_not_parser() {
+        let src = include_str!("../tests/fixtures/ranges.pest");
+        let code = convert_pest_source(
+            src,
+            &ConvertOptions {
+                entry_rule: "main".to_string(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert!(!code.contains("Parsed::hex_digit"));
+        assert!(code.contains("let hex_digit = one_of("));
     }
 
     #[test]

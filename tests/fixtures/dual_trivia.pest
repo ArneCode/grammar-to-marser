@@ -1,0 +1,5 @@
+WHITESPACE = _{ " " | tab }
+tab = _{ "\t" }
+pair = @{ word ~ tab ~ word }
+word = @{ ASCII_ALPHA+ }
+main = { SOI ~ pair ~ EOI }

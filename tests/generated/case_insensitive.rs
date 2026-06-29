@@ -18,7 +18,6 @@ fn ci_ch<'src, MRes>(c: char) -> impl Matcher<'src, &'src str, MRes> + Clone {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Parsed<'src> {
-    WHITESPACE { value: &'src str },
     main {
         select: &'src str,
         from: &'src str,
@@ -34,25 +33,20 @@ pub fn grammar<'src>() -> impl Parser<'src, &'src str, Output = Parsed<'src>> + 
 
     // ident = @{ ("_" | ASCII_ALPHA) ~ ("_" | ASCII_ALPHANUMERIC)* }
     let ident = capture!(
-bind_slice!(
+        bind_slice!(
             (
                 one_of(('_', ASCII_ALPHA.clone())),
                 many(one_of(('_', ASCII_ALPHANUMERIC.clone()))),
             ),
-        value as &'src str
-    ) => Parsed::ident { value }
+            value as &'src str
+        ) => Parsed::ident { value }
     );
 
     // WHITESPACE = _{ " " }
-    let WHITESPACE = capture!(
-bind_slice!(
-            ' ',
-        value as &'src str
-    ) => Parsed::WHITESPACE { value }
-    );
+    let WHITESPACE = ' ';
 
     let ws = many(
-        WHITESPACE.clone().ignore_result()
+        WHITESPACE.clone()
     );
 
     // main = { SOI ~ #select = ^"select" ~ #from = ^"from" ~ #table = ident ~ EOI }
@@ -60,14 +54,24 @@ bind_slice!(
         (
             start_of_input(),
             ws.clone(),
-            bind_slice!((ci_ch('s'), ci_ch('e'), ci_ch('l'), ci_ch('e'), ci_ch('c'), ci_ch('t')), select as &'src str),
+            bind_slice!(
+                (ci_ch('s'), ci_ch('e'), ci_ch('l'), ci_ch('e'), ci_ch('c'), ci_ch('t')),
+                select as &'src str
+            ),
             ws.clone(),
-            bind_slice!((ci_ch('f'), ci_ch('r'), ci_ch('o'), ci_ch('m')), from as &'src str),
+            bind_slice!(
+                (ci_ch('f'), ci_ch('r'), ci_ch('o'), ci_ch('m')),
+                from as &'src str
+            ),
             ws.clone(),
             bind!(ident.clone(), table),
             ws.clone(),
             end_of_input(),
-        ) => Parsed::main { select: select, from: from, table: Box::new(table) }
+        ) => Parsed::main {
+            select: select,
+            from: from,
+            table: Box::new(table),
+        }
     );
 
     main.clone()

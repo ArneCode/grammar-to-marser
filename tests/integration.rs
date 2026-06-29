@@ -176,6 +176,24 @@ mod e2e_simple {
     }
 }
 
+mod e2e_dual_trivia {
+    pest_marser_e2e! {
+        mod inner {
+            grammar = "tests/fixtures/dual_trivia.pest";
+            pest = DualTriviaPest;
+            generated = dual_trivia;
+            entry = main;
+            corpus = [
+                accept!("a\tb"),
+                accept!("hello\tworld"),
+                reject!("ab"),
+                reject!(""),
+                reject!("a\t"),
+            ];
+        }
+    }
+}
+
 mod e2e_case_insensitive {
     pest_marser_e2e! {
         mod inner {

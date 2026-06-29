@@ -9,6 +9,7 @@ mod output;
 mod progress;
 mod scc;
 mod specialize;
+mod trivia;
 mod validate;
 
 pub use ast::*;

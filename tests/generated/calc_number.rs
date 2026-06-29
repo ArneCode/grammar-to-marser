@@ -21,7 +21,6 @@ pub enum Parsed<'src> {
         inner: Box<Parsed<'src>>,
     },
     number { value: &'src str },
-    WHITESPACE { value: &'src str },
 }
 
 pub fn grammar<'src>() -> impl Parser<'src, &'src str, Output = Parsed<'src>> + Clone {
@@ -29,10 +28,7 @@ pub fn grammar<'src>() -> impl Parser<'src, &'src str, Output = Parsed<'src>> + 
 
     // number = @{ ASCII_DIGIT+ }
     let number = capture!(
-bind_slice!(
-            one_or_more(ASCII_DIGIT.clone()),
-        value as &'src str
-    ) => Parsed::number { value }
+        bind_slice!(one_or_more(ASCII_DIGIT.clone()), value as &'src str) => Parsed::number { value }
     );
 
     number.clone()

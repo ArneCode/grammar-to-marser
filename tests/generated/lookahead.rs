@@ -30,7 +30,6 @@ where
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Parsed<'src> {
-    WHITESPACE { value: &'src str },
     main {
         id: Box<Parsed<'src>>,
         prefix: Vec<&'src str>,
@@ -45,25 +44,20 @@ pub fn grammar<'src>() -> impl Parser<'src, &'src str, Output = Parsed<'src>> + 
 
     // ident = @{ ("_" | ASCII_ALPHA) ~ ("_" | ASCII_ALPHANUMERIC)* }
     let ident = capture!(
-bind_slice!(
+        bind_slice!(
             (
                 one_of(('_', ASCII_ALPHA.clone())),
                 many(one_of(('_', ASCII_ALPHANUMERIC.clone()))),
             ),
-        value as &'src str
-    ) => Parsed::ident { value }
+            value as &'src str
+        ) => Parsed::ident { value }
     );
 
     // WHITESPACE = _{ " " }
-    let WHITESPACE = capture!(
-bind_slice!(
-            ' ',
-        value as &'src str
-    ) => Parsed::WHITESPACE { value }
-    );
+    let WHITESPACE = ' ';
 
     let ws = many(
-        WHITESPACE.clone().ignore_result()
+        WHITESPACE.clone()
     );
 
     // main = { SOI ~ #id = ident ~ #prefix = (!"end" ~ ANY)* ~ "end" ~ EOI }
@@ -73,12 +67,18 @@ bind_slice!(
             ws.clone(),
             bind!(ident.clone(), id),
             ws.clone(),
-            bind_slice!(repeat_ws((negative_lookahead("end"), ws.clone(), AnyToken), ws.clone()), *prefix as &'src str),
+            bind_slice!(
+                repeat_ws((negative_lookahead("end"), ws.clone(), AnyToken), ws.clone()),
+                *prefix as &'src str
+            ),
             ws.clone(),
             "end",
             ws.clone(),
             end_of_input(),
-        ) => Parsed::main { id: Box::new(id), prefix: prefix }
+        ) => Parsed::main {
+            id: Box::new(id),
+            prefix: prefix,
+        }
     );
 
     main.clone()

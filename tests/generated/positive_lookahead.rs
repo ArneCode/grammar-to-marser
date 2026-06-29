@@ -13,7 +13,6 @@ use marser::parser::{
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Parsed<'src> {
-    WHITESPACE { value: &'src str },
     main {
         matched: &'src str,
     },
@@ -21,15 +20,10 @@ pub enum Parsed<'src> {
 
 pub fn grammar<'src>() -> impl Parser<'src, &'src str, Output = Parsed<'src>> + Clone {
     // WHITESPACE = _{ " " }
-    let WHITESPACE = capture!(
-bind_slice!(
-            ' ',
-        value as &'src str
-    ) => Parsed::WHITESPACE { value }
-    );
+    let WHITESPACE = ' ';
 
     let ws = many(
-        WHITESPACE.clone().ignore_result()
+        WHITESPACE.clone()
     );
 
     // main = { SOI ~ &"ab" ~ #matched = "ab" ~ EOI }

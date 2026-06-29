@@ -18,6 +18,7 @@ use crate::scc::{
     Scc, condensation_topo, is_cyclic, partition_scc_for_recursion, recursive_arity, tarjan_scc,
 };
 use crate::specialize::{SpecializationGraph, build_specialization_graph, callee_context, collect_rule_deps};
+use crate::trivia::compute_matcher_only_rules;
 
 const RUST_KEYWORDS: &[&str] = &[
     "abstract", "as", "async", "await", "become", "box", "break", "const", "continue", "crate",
@@ -160,8 +161,11 @@ enum BodyLayout {
 
 const WRAPPER_FN_BODY_INDENT: &str = "    ";
 
-/// Replace each `bind!(...)` / `bind_slice!(...)` with a parseable placeholder so `syn` /
-/// `prettyplease` can format the surrounding expression, then restore afterward.
+/// Rename `bind!` / `bind_slice!` to parseable function-call placeholders so `syn` /
+/// `prettyplease` see the real argument length when breaking lines, then restore afterward.
+const FMT_BIND: &str = "__pest_fmt_bind__";
+const FMT_BIND_SLICE: &str = "__pest_fmt_bind_slice__";
+const FMT_BIND_OPT: &str = "__pest_fmt_qmark__";
 fn is_ident_start(ch: u8) -> bool {
     ch.is_ascii_alphabetic() || ch == b'_'
 }
@@ -210,28 +214,146 @@ fn peel_single_postfix<'a>(expr: &'a Expr) -> (&'a Expr, Option<&'a PostfixOp>) 
     }
 }
 
-fn substitute_bind_placeholders(source: &str) -> (String, Vec<String>) {
+fn append_bind_macro_body(source: &str, mut index: usize, result: &mut String) -> usize {
+    let bytes = source.as_bytes();
+    let mut depth = 1i32;
+    let mut top_level_commas = 0u32;
+    while index < bytes.len() && depth > 0 {
+        let ch = bytes[index];
+        if depth == 1 && ch == b',' {
+            result.push(',');
+            index += 1;
+            while index < bytes.len() && bytes[index].is_ascii_whitespace() {
+                result.push(bytes[index] as char);
+                index += 1;
+            }
+            top_level_commas += 1;
+            if top_level_commas == 1 && index < bytes.len() && bytes[index] == b'?' {
+                result.push_str(FMT_BIND_OPT);
+                index += 1;
+                continue;
+            }
+            continue;
+        }
+        match ch {
+            b'(' => {
+                depth += 1;
+                result.push('(');
+                index += 1;
+            }
+            b')' => {
+                depth -= 1;
+                result.push(')');
+                index += 1;
+            }
+            b'"' => {
+                let start = index;
+                index += 1;
+                while index < bytes.len() && bytes[index] != b'"' {
+                    if bytes[index] == b'\\' {
+                        index += 1;
+                    }
+                    index += 1;
+                }
+                if index < bytes.len() {
+                    index += 1;
+                }
+                result.push_str(&source[start..index]);
+            }
+            b'\'' => {
+                let start = index;
+                skip_rust_single_quote_literal(bytes, &mut index);
+                result.push_str(&source[start..index]);
+            }
+            _ => {
+                result.push(ch as char);
+                index += 1;
+            }
+        }
+    }
+    index
+}
+
+fn substitute_bind_placeholders(source: &str) -> String {
     let mut result = String::new();
-    let mut originals = Vec::new();
     let bytes = source.as_bytes();
     let mut index = 0;
     while index < bytes.len() {
-        let bind_macro = if source[index..].starts_with("bind_slice!(") {
+        if source[index..].starts_with("bind_slice!(") {
+            result.push_str(FMT_BIND_SLICE);
+            result.push('(');
+            index += "bind_slice!(".len();
+            index = append_bind_macro_body(source, index, &mut result);
+        } else if source[index..].starts_with("bind!(") {
+            result.push_str(FMT_BIND);
+            result.push('(');
+            index += "bind!(".len();
+            index = append_bind_macro_body(source, index, &mut result);
+        } else if bytes[index] == b'"' {
+            result.push('"');
+            index += 1;
+            while index < bytes.len() && bytes[index] != b'"' {
+                if bytes[index] == b'\\' {
+                    result.push(bytes[index] as char);
+                    index += 1;
+                    if index < bytes.len() {
+                        result.push(bytes[index] as char);
+                        index += 1;
+                    }
+                    continue;
+                }
+                result.push(bytes[index] as char);
+                index += 1;
+            }
+            if index < bytes.len() {
+                result.push('"');
+                index += 1;
+            }
+        } else if bytes[index] == b'\'' {
+            let start = index;
+            skip_rust_single_quote_literal(bytes, &mut index);
+            result.push_str(&source[start..index]);
+        } else {
+            result.push(bytes[index] as char);
+            index += 1;
+        }
+    }
+    result
+}
+
+fn remove_trailing_commas_in_bind_macros(source: &str) -> String {
+    let mut result = String::new();
+    let bytes = source.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() {
+        let bind_prefix = if source[index..].starts_with("bind_slice!(") {
             Some("bind_slice!(")
         } else if source[index..].starts_with("bind!(") {
             Some("bind!(")
         } else {
             None
         };
-        if let Some(macro_prefix) = bind_macro {
-            let start = index;
-            index += macro_prefix.len();
+        if let Some(prefix) = bind_prefix {
+            result.push_str(prefix);
+            index += prefix.len();
             let mut depth = 1i32;
             while index < bytes.len() && depth > 0 {
-                match bytes[index] {
+                if depth == 1 && bytes[index] == b',' {
+                    let mut next = index + 1;
+                    while next < bytes.len() && bytes[next].is_ascii_whitespace() {
+                        next += 1;
+                    }
+                    if next < bytes.len() && bytes[next] == b')' {
+                        index += 1;
+                        continue;
+                    }
+                }
+                let ch = bytes[index];
+                match ch {
                     b'(' => depth += 1,
                     b')' => depth -= 1,
                     b'"' => {
+                        let start = index;
                         index += 1;
                         while index < bytes.len() && bytes[index] != b'"' {
                             if bytes[index] == b'\\' {
@@ -239,38 +361,42 @@ fn substitute_bind_placeholders(source: &str) -> (String, Vec<String>) {
                             }
                             index += 1;
                         }
+                        if index < bytes.len() {
+                            index += 1;
+                        }
+                        result.push_str(&source[start..index]);
+                        continue;
                     }
                     b'\'' => {
+                        let start = index;
                         skip_rust_single_quote_literal(bytes, &mut index);
+                        result.push_str(&source[start..index]);
                         continue;
                     }
                     _ => {}
                 }
+                result.push(ch as char);
                 index += 1;
             }
-            originals.push(source[start..index].to_string());
-            let placeholder = format!("__pest_fmt_bind_{}__", originals.len() - 1);
-            result.push_str(&placeholder);
         } else {
             result.push(bytes[index] as char);
             index += 1;
         }
     }
-    (result, originals)
+    result
 }
 
-fn restore_bind_placeholders(formatted: &str, originals: &[String]) -> String {
-    let mut result = formatted.to_string();
-    for (index, original) in originals.iter().enumerate() {
-        let placeholder = format!("__pest_fmt_bind_{index}__");
-        result = result.replace(&placeholder, original);
-    }
-    result
+fn restore_bind_placeholders(formatted: &str) -> String {
+    let restored = formatted
+        .replace(&format!("{FMT_BIND_SLICE}("), "bind_slice!(")
+        .replace(&format!("{FMT_BIND}("), "bind!(")
+        .replace(FMT_BIND_OPT, "?");
+    remove_trailing_commas_in_bind_macros(&restored)
 }
 
 /// Pretty-print a Rust expression and indent it for embedding at `column` spaces.
 fn format_expr_str(source: &str, column: usize) -> Result<String, ConvertError> {
-    let (source_for_parse, bind_originals) = substitute_bind_placeholders(source);
+    let source_for_parse = substitute_bind_placeholders(source);
     let expr: syn::Expr = syn::parse_str(&source_for_parse).map_err(codegen_format_err)?;
     let wrapper: syn::ItemFn = parse_quote! {
         fn __pest_to_marser_fmt__() {
@@ -285,7 +411,7 @@ fn format_expr_str(source: &str, column: usize) -> Result<String, ConvertError> 
     let formatted = prettyplease::unparse(&file);
     let body = extract_fn_body_expr(&formatted)?;
     let normalized = dedent_lines(&strip_fn_body_indent(&body));
-    let normalized = restore_bind_placeholders(&normalized, &bind_originals);
+    let normalized = restore_bind_placeholders(&normalized);
     if normalized.lines().count() > source.lines().count() || source.len() > 80 {
         agent_debug_log(
             "H4",
@@ -301,6 +427,15 @@ fn format_expr_str(source: &str, column: usize) -> Result<String, ConvertError> 
         );
     }
     Ok(indent_lines(&normalized, column))
+}
+
+/// Format a `Parsed::...` construction for embedding inline after `capture!(... =>`.
+fn format_construction_for_capture(source: &str, column: usize) -> Result<String, ConvertError> {
+    let formatted = format_expr_str(source, column)?;
+    Ok(match formatted.split_once('\n') {
+        Some((first, rest)) if !rest.is_empty() => format!("{}\n{rest}", first.trim_start()),
+        _ => formatted.trim_start().to_string(),
+    })
 }
 
 fn strip_fn_body_indent(body: &str) -> String {
@@ -658,6 +793,7 @@ struct Generator<'a> {
     needs_bounded_repeat: bool,
     import_needs: ImportNeeds,
     recursive_comment_emitted: bool,
+    matcher_only: HashSet<String>,
 }
 
 impl<'a> Generator<'a> {
@@ -779,6 +915,8 @@ impl<'a> Generator<'a> {
             needs_bounded_repeat,
         );
 
+        let matcher_only = compute_matcher_only_rules(table, graph);
+
         Self {
             table,
             graph,
@@ -797,6 +935,7 @@ impl<'a> Generator<'a> {
             needs_bounded_repeat,
             import_needs,
             recursive_comment_emitted: false,
+            matcher_only,
         }
     }
 
@@ -951,7 +1090,7 @@ impl<'a> Generator<'a> {
                  }\n\n",
             );
         }
-        out.push_str(&emit_parsed_enum(&self.table.rules));
+        out.push_str(&emit_parsed_enum(&self.table.rules, &self.matcher_only));
         out.push_str(&format!(
             "pub fn {}<'src>() -> impl Parser<'src, &'src str, Output = Parsed<'src>> + Clone {{\n",
             sanitize_ident(&self.options.function_name)
@@ -1040,9 +1179,49 @@ impl<'a> Generator<'a> {
             }
         }
 
-        self.emit_acyclic_sym(out, sym)?;
+        if self.matcher_only.contains(&sym.rule) {
+            self.emit_matcher_sym(out, sym)?;
+        } else {
+            self.emit_acyclic_sym(out, sym)?;
+        }
         visiting.remove(sym);
         Ok(())
+    }
+
+    fn emit_matcher_sym(&mut self, out: &mut String, sym: &SymKey) -> Result<(), ConvertError> {
+        if self.emitted.contains(sym) || self.cyclic_syms.contains(sym) {
+            return Ok(());
+        }
+        if !self.sym_names.contains_key(sym) {
+            let contexts_by_rule = contexts_by_rule(&self.graph.nodes);
+            self.sym_names.insert(
+                sym.clone(),
+                binding_name_for_graph(sym, &contexts_by_rule),
+            );
+        }
+        let name = self.sym_names[sym].clone();
+        self.emit_rule_comment(out, &sym.rule, "    ");
+        let body = self.gen_matcher_body(sym, None, 4, BodyLayout::AssignmentContinuation)?;
+        let body = match body.split_once('\n') {
+            Some((first, rest)) if !rest.is_empty() => format!("{}\n{rest}", first.trim_start()),
+            _ => body.trim_start().to_string(),
+        };
+        out.push_str(&format!("    let {name} = {body};\n\n"));
+        self.emitted.insert(sym.clone());
+        Ok(())
+    }
+
+    fn ws_unit_ref(&self, rule_name: &str) -> Result<String, ConvertError> {
+        let sym = SymKey {
+            rule: rule_name.to_string(),
+            context: MatchingContext::AtomicNoWs,
+        };
+        let name = self.sym_names[&sym].clone();
+        if self.matcher_only.contains(rule_name) {
+            Ok(format!("{name}.clone()"))
+        } else {
+            Ok(format!("{name}.clone().ignore_result()"))
+        }
     }
 
     fn emit_hoisted_builtins(&self, out: &mut String) -> Result<(), ConvertError> {
@@ -1074,36 +1253,12 @@ impl<'a> Generator<'a> {
 
         let inner = match (self.table.has_whitespace, self.table.has_comment) {
             (true, true) => {
-                let ws_name = self.sym_names[&SymKey {
-                    rule: "WHITESPACE".to_string(),
-                    context: MatchingContext::AtomicNoWs,
-                }]
-                .clone();
-                let comment_name = self.sym_names[&SymKey {
-                    rule: "COMMENT".to_string(),
-                    context: MatchingContext::AtomicNoWs,
-                }]
-                .clone();
-                format!(
-                    "one_of(({ws_name}.clone().ignore_result(), {comment_name}.clone().ignore_result()))"
-                )
+                let ws_ref = self.ws_unit_ref("WHITESPACE")?;
+                let comment_ref = self.ws_unit_ref("COMMENT")?;
+                format!("one_of(({ws_ref}, {comment_ref}))")
             }
-            (true, false) => {
-                let ws_name = self.sym_names[&SymKey {
-                    rule: "WHITESPACE".to_string(),
-                    context: MatchingContext::AtomicNoWs,
-                }]
-                .clone();
-                format!("{ws_name}.clone().ignore_result()")
-            }
-            (false, true) => {
-                let comment_name = self.sym_names[&SymKey {
-                    rule: "COMMENT".to_string(),
-                    context: MatchingContext::AtomicNoWs,
-                }]
-                .clone();
-                format!("{comment_name}.clone().ignore_result()")
-            }
+            (true, false) => self.ws_unit_ref("WHITESPACE")?,
+            (false, true) => self.ws_unit_ref("COMMENT")?,
             (false, false) => unreachable!(),
         };
         let formatted = format_expr_str(&inner, 8)?;
@@ -1114,6 +1269,9 @@ impl<'a> Generator<'a> {
     fn emit_acyclic_sym(&mut self, out: &mut String, sym: &SymKey) -> Result<(), ConvertError> {
         if self.emitted.contains(sym) || self.cyclic_syms.contains(sym) {
             return Ok(());
+        }
+        if self.matcher_only.contains(&sym.rule) {
+            return self.emit_matcher_sym(out, sym);
         }
         if !self.sym_names.contains_key(sym) {
             let contexts_by_rule = contexts_by_rule(&self.graph.nodes);
@@ -1256,21 +1414,56 @@ impl<'a> Generator<'a> {
             BodyLayout::Block => String::new(),
         };
         let formatted_grammar = if spec.is_leaf {
-            let formatted_inner = format_expr_str(&inner, inner_column + 4)?;
-            format!(
-                "bind_slice!(\n{formatted_inner},\n{}value as &'src str\n{close_indent})",
-                " ".repeat(inner_column)
-            )
+            let bind_slice_expr = format!("bind_slice!({inner}, value as &'src str)");
+            format_expr_str(&bind_slice_expr, inner_column)?
         } else {
             format_expr_str(&inner, inner_column)?
         };
         let construction = Self::build_variant_construction(&sym.rule, &spec, &rule.expr);
+        let formatted_construction =
+            format_construction_for_capture(&construction, inner_column)?;
         let capture = format!(
-            "capture!(\n{formatted_grammar} => {construction}\n{close_indent})"
+            "capture!(\n{formatted_grammar} => {formatted_construction}\n{close_indent})"
         );
         Ok(match layout {
             BodyLayout::AssignmentContinuation => capture,
             BodyLayout::Block => indent_lines(&capture, base_column),
+        })
+    }
+
+    fn gen_matcher_body(
+        &self,
+        sym: &SymKey,
+        recursive_members: Option<&[SymKey]>,
+        base_column: usize,
+        layout: BodyLayout,
+    ) -> Result<String, ConvertError> {
+        let rule = &self.graph.rule_map[&sym.rule];
+        let rule_map = self.rule_map_refs();
+        let spec = analyze_rule_output(&rule.expr, &rule_map);
+        let empty_spec = RuleOutputSpec {
+            fields: Vec::new(),
+            is_leaf: spec.is_leaf,
+        };
+        let empty_sigil = HashMap::new();
+        let inner = self.gen_expr(
+            &rule.expr,
+            sym.context,
+            recursive_members,
+            CodegenMode::Matcher,
+            &empty_spec,
+            &empty_sigil,
+            false,
+            true,
+        );
+        let inner_column = match layout {
+            BodyLayout::AssignmentContinuation => base_column + 4,
+            BodyLayout::Block => 4,
+        };
+        let formatted = format_expr_str(&inner, inner_column)?;
+        Ok(match layout {
+            BodyLayout::AssignmentContinuation => formatted,
+            BodyLayout::Block => indent_lines(&formatted, base_column),
         })
     }
 
@@ -1648,12 +1841,14 @@ impl<'a> Generator<'a> {
                 context: callee_ctx,
             };
             let reference = self.sym_ref(&sym, recursive_members);
+            if rule.modifier == Some(Modifier::Silent) {
+                return reference;
+            }
             if in_lookahead || suppress_bind {
-                return if in_lookahead {
-                    format!("{reference}.ignore_result()")
-                } else {
-                    reference
-                };
+                if self.matcher_only.contains(name) {
+                    return reference;
+                }
+                return format!("{reference}.ignore_result()");
             }
             let key = FieldKey::Rule(name.to_string());
             let sigil = sigil_map.get(&key).copied().unwrap_or(BindSigil::Plain);
@@ -2124,20 +2319,18 @@ mod format_tests {
     #[test]
     fn substitute_bind_placeholders_replaces_nested_parens() {
         let source = "(bind!(item.clone(), *item_val), repeat_ws((',', bind!(item.clone(), *item_val)), ws.clone()))";
-        let (substituted, originals) = substitute_bind_placeholders(source);
-        assert_eq!(originals.len(), 2);
-        assert!(substituted.contains("__pest_fmt_bind_0__"));
-        assert!(substituted.contains("__pest_fmt_bind_1__"));
+        let substituted = substitute_bind_placeholders(source);
+        assert!(substituted.contains("__pest_fmt_bind__(item.clone(), *item_val)"));
         assert!(!substituted.contains("bind!("));
-        assert_eq!(restore_bind_placeholders(&substituted, &originals), source);
+        assert_eq!(restore_bind_placeholders(&substituted), source);
     }
 
     #[test]
     fn substitute_bind_placeholders_handles_ci_ch_char_literals() {
         let source = "bind_slice!((ci_ch('s'), ci_ch('e')), select as &'src str)";
-        let (substituted, originals) = substitute_bind_placeholders(source);
-        assert_eq!(originals.len(), 1);
-        assert_eq!(restore_bind_placeholders(&substituted, &originals), source);
+        let substituted = substitute_bind_placeholders(source);
+        assert!(substituted.contains("__pest_fmt_bind_slice__((ci_ch('s'), ci_ch('e')), select as &'src str)"));
+        assert_eq!(restore_bind_placeholders(&substituted), source);
     }
 
     #[test]
@@ -2149,11 +2342,10 @@ mod format_tests {
     #[test]
     fn substitute_bind_placeholders_handles_bind_slice_with_lifetime() {
         let source = "repeat_ws((bind_slice!(one_of(('*', '/')), *op as &'src str), ws.clone()))";
-        let (substituted, originals) = substitute_bind_placeholders(source);
-        assert_eq!(originals.len(), 1);
-        assert!(originals[0].contains("bind_slice!"));
+        let substituted = substitute_bind_placeholders(source);
+        assert!(substituted.contains("__pest_fmt_bind_slice__(one_of(('*', '/')), *op as &'src str)"));
         assert!(!substituted.contains("bind_slice!("));
-        assert_eq!(restore_bind_placeholders(&substituted, &originals), source);
+        assert_eq!(restore_bind_placeholders(&substituted), source);
     }
 
     #[test]
@@ -2162,5 +2354,49 @@ mod format_tests {
         let out = format_expr_str(source, 8).unwrap();
         assert!(out.lines().count() > 1, "expected multiline output, got:\n{out}");
         assert!(out.contains("bind!(item.clone(), *item_val)"));
+    }
+
+    #[test]
+    fn restore_bind_placeholders_strips_trailing_commas() {
+        let formatted = "__pest_fmt_bind_slice__((ci_ch('s'),), select as &'src str,)";
+        let restored = restore_bind_placeholders(formatted);
+        assert_eq!(
+            restored,
+            "bind_slice!((ci_ch('s'),), select as &'src str)"
+        );
+    }
+
+    #[test]
+    fn substitute_bind_placeholders_handles_optional_sigil() {
+        let source = r#"one_of((' ', '\t', bind!(newline.clone(), ?newline_val)))"#;
+        let substituted = substitute_bind_placeholders(source);
+        assert!(substituted.contains("__pest_fmt_bind__(newline.clone(), __pest_fmt_qmark__newline_val)"));
+        assert_eq!(restore_bind_placeholders(&substituted), source);
+        format_expr_str(source, 8).unwrap();
+    }
+
+    #[test]
+    fn format_expr_str_breaks_repeat_ws_with_bind_slice() {
+        let source = "(bind!(factor.clone(), *factor_val), ws.clone(), repeat_ws((bind_slice!(one_of(('*', '/')), *op as &'src str), ws.clone(), bind!(factor.clone(), *factor_val)), ws.clone()))";
+        let out = format_expr_str(source, 8).unwrap();
+        let repeat_ws_lines: Vec<_> = out
+            .lines()
+            .filter(|line| line.contains("bind_slice!") || line.contains("bind!(factor"))
+            .collect();
+        assert!(
+            repeat_ws_lines.len() >= 2,
+            "expected repeat_ws tuple elements on separate lines, got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn format_expr_str_breaks_variant_construction() {
+        let source = "Parsed::term { factor_val: factor_val.into_iter().map(Box::new).collect(), op: op }";
+        let out = format_expr_str(source, 12).unwrap();
+        assert!(
+            out.lines().count() > 1,
+            "expected multiline struct literal, got:\n{out}"
+        );
+        assert!(out.contains("factor_val:"));
     }
 }

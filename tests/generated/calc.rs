@@ -40,7 +40,6 @@ pub enum Parsed<'src> {
         inner: Box<Parsed<'src>>,
     },
     number { value: &'src str },
-    WHITESPACE { value: &'src str },
 }
 
 pub fn grammar<'src>() -> impl Parser<'src, &'src str, Output = Parsed<'src>> + Clone {
@@ -48,22 +47,14 @@ pub fn grammar<'src>() -> impl Parser<'src, &'src str, Output = Parsed<'src>> + 
 
     // number = @{ ASCII_DIGIT+ }
     let number = capture!(
-bind_slice!(
-            one_or_more(ASCII_DIGIT.clone()),
-        value as &'src str
-    ) => Parsed::number { value }
+        bind_slice!(one_or_more(ASCII_DIGIT.clone()), value as &'src str) => Parsed::number { value }
     );
 
     // WHITESPACE = _{ " " | "\t" }
-    let WHITESPACE = capture!(
-bind_slice!(
-            one_of((' ', '\t')),
-        value as &'src str
-    ) => Parsed::WHITESPACE { value }
-    );
+    let WHITESPACE = one_of((' ', '\t'));
 
     let ws = many(
-        WHITESPACE.clone().ignore_result()
+        WHITESPACE.clone()
     );
 
     // This rule cluster is cyclic: some rules refer back to others in the same
@@ -76,7 +67,9 @@ bind_slice!(
             one_of((
                 bind!(number.clone(), inner),
                 ('(', ws.clone(), bind!(expr.clone(), inner), ws.clone(), ')'),
-            )) => Parsed::factor { inner: Box::new(inner) }
+            )) => Parsed::factor {
+                inner: Box::new(inner),
+            }
         );
 
         // term = { factor ~ ( #op = ("*" | "/") ~ factor )* }
@@ -84,8 +77,18 @@ bind_slice!(
             (
                 bind!(factor.clone(), *factor_val),
                 ws.clone(),
-                repeat_ws((bind_slice!(one_of(('*', '/')), *op as &'src str), ws.clone(), bind!(factor.clone(), *factor_val)), ws.clone()),
-            ) => Parsed::term { factor_val: factor_val.into_iter().map(Box::new).collect(), op: op }
+                repeat_ws(
+                    (
+                        bind_slice!(one_of(('*', '/')), *op as &'src str),
+                        ws.clone(),
+                        bind!(factor.clone(), *factor_val),
+                    ),
+                    ws.clone(),
+                ),
+            ) => Parsed::term {
+                factor_val: factor_val.into_iter().map(Box::new).collect(),
+                op: op,
+            }
         );
 
         // expr = { term ~ ( #op = ("+" | "-") ~ term )* }
@@ -93,8 +96,18 @@ bind_slice!(
             (
                 bind!(term.clone(), *term_val),
                 ws.clone(),
-                repeat_ws((bind_slice!(one_of(('+', '-')), *op as &'src str), ws.clone(), bind!(term.clone(), *term_val)), ws.clone()),
-            ) => Parsed::expr { term_val: term_val.into_iter().map(Box::new).collect(), op: op }
+                repeat_ws(
+                    (
+                        bind_slice!(one_of(('+', '-')), *op as &'src str),
+                        ws.clone(),
+                        bind!(term.clone(), *term_val),
+                    ),
+                    ws.clone(),
+                ),
+            ) => Parsed::expr {
+                term_val: term_val.into_iter().map(Box::new).collect(),
+                op: op,
+            }
         )
     });
 

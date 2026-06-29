@@ -14,7 +14,6 @@ use marser::parser::{
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Parsed<'src> {
-    WHITESPACE { value: &'src str },
     main {
         word: Box<Parsed<'src>>,
     },
@@ -29,32 +28,34 @@ pub fn grammar<'src>() -> impl Parser<'src, &'src str, Output = Parsed<'src>> + 
 
     // letter = { ASCII_ALPHA }
     let letter = capture!(
-bind_slice!(
-            ASCII_ALPHA.clone(),
-        value as &'src str
-    ) => Parsed::letter { value }
+        bind_slice!(ASCII_ALPHA.clone(), value as &'src str) => Parsed::letter { value }
     );
 
     // word = ${ letter+ }
     let word = capture!(
-        one_or_more(bind!(letter.clone(), *letter_val)) => Parsed::word { letter_val: letter_val.into_iter().map(Box::new).collect() }
+        one_or_more(bind!(letter.clone(), *letter_val)) => Parsed::word {
+            letter_val: letter_val.into_iter().map(Box::new).collect(),
+        }
     );
 
     // WHITESPACE = _{ " " }
-    let WHITESPACE = capture!(
-bind_slice!(
-            ' ',
-        value as &'src str
-    ) => Parsed::WHITESPACE { value }
-    );
+    let WHITESPACE = ' ';
 
     let ws = many(
-        WHITESPACE.clone().ignore_result()
+        WHITESPACE.clone()
     );
 
     // main = { SOI ~ #word = word ~ EOI }
     let main = capture!(
-        (start_of_input(), ws.clone(), bind!(word.clone(), word_val), ws.clone(), end_of_input()) => Parsed::main { word: Box::new(word_val) }
+        (
+            start_of_input(),
+            ws.clone(),
+            bind!(word.clone(), word_val),
+            ws.clone(),
+            end_of_input(),
+        ) => Parsed::main {
+            word: Box::new(word_val),
+        }
     );
 
     main.clone()

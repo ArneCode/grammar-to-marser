@@ -14,7 +14,6 @@ use marser::parser::{
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Parsed<'src> {
-    WHITESPACE { value: &'src str },
     main {
         chars: Vec<&'src str>,
     },
@@ -22,20 +21,24 @@ pub enum Parsed<'src> {
 
 pub fn grammar<'src>() -> impl Parser<'src, &'src str, Output = Parsed<'src>> + Clone {
     // WHITESPACE = _{ " " }
-    let WHITESPACE = capture!(
-bind_slice!(
-            ' ',
-        value as &'src str
-    ) => Parsed::WHITESPACE { value }
-    );
+    let WHITESPACE = ' ';
 
     let ws = many(
-        WHITESPACE.clone().ignore_result()
+        WHITESPACE.clone()
     );
 
     // main = { SOI ~ #chars = "a"{3} ~ EOI }
     let main = capture!(
-        (start_of_input(), ws.clone(), bind_slice!(('a', repeat((ws.clone(), 'a'), 2..=2)), *chars as &'src str), ws.clone(), end_of_input()) => Parsed::main { chars: chars }
+        (
+            start_of_input(),
+            ws.clone(),
+            bind_slice!(
+                ('a', repeat((ws.clone(), 'a'), 2..=2)),
+                *chars as &'src str
+            ),
+            ws.clone(),
+            end_of_input(),
+        ) => Parsed::main { chars: chars }
     );
 
     main.clone()

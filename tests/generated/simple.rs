@@ -31,14 +31,6 @@ where
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Parsed<'src> {
-    WHITESPACE {
-        newline_val: Option<Box<Parsed<'src>>>,
-    },
-    COMMENT {
-        line_comment_val: Box<Parsed<'src>>,
-    },
-    newline { value: &'src str },
-    line_comment { value: &'src str },
     main {
         item_val: Vec<Box<Parsed<'src>>>,
     },
@@ -59,56 +51,48 @@ pub fn grammar<'src>() -> impl Parser<'src, &'src str, Output = Parsed<'src>> + 
 
     // number = @{ ASCII_DIGIT+ }
     let number = capture!(
-bind_slice!(
-            one_or_more(ASCII_DIGIT.clone()),
-        value as &'src str
-    ) => Parsed::number { value }
+        bind_slice!(one_or_more(ASCII_DIGIT.clone()), value as &'src str) => Parsed::number { value }
     );
 
     // ident = @{ ("_" | ASCII_ALPHA) ~ ("_" | ASCII_ALPHANUMERIC)* }
     let ident = capture!(
-bind_slice!(
+        bind_slice!(
             (
                 one_of(('_', ASCII_ALPHA.clone())),
                 many(one_of(('_', ASCII_ALPHANUMERIC.clone()))),
             ),
-        value as &'src str
-    ) => Parsed::ident { value }
+            value as &'src str
+        ) => Parsed::ident { value }
     );
 
     // newline = _{ "\n" | "\r\n" }
-    let newline = capture!(
-bind_slice!(
-            one_of(('\n', "\r\n")),
-        value as &'src str
-    ) => Parsed::newline { value }
-    );
+    let newline = one_of(('\n', "\r\n"));
 
     // WHITESPACE = _{ " " | "\t" | newline }
-    let WHITESPACE = capture!(
-        one_of((' ', '\t', bind!(newline.clone(), ?newline_val))) => Parsed::WHITESPACE { newline_val: newline_val.map(Box::new) }
-    );
+    let WHITESPACE = one_of((' ', '\t', newline.clone()));
 
     // line_comment = _{ "//" ~ (!newline ~ ANY)* }
-    let line_comment = capture!(
-bind_slice!(
-            ("//", many((negative_lookahead(newline.clone().ignore_result()), AnyToken))),
-        value as &'src str
-    ) => Parsed::line_comment { value }
-    );
+    let line_comment = ("//", many((negative_lookahead(newline.clone()), AnyToken)));
 
     // COMMENT = _{ line_comment }
-    let COMMENT = capture!(
-        bind!(line_comment.clone(), line_comment_val) => Parsed::COMMENT { line_comment_val: Box::new(line_comment_val) }
-    );
+    let COMMENT = line_comment.clone();
 
     let ws = many(
-        one_of((WHITESPACE.clone().ignore_result(), COMMENT.clone().ignore_result()))
+        one_of((WHITESPACE.clone(), COMMENT.clone()))
     );
 
     // item = { #name = ident ~ "=" ~ #value = number }
     let item = capture!(
-        (bind!(ident.clone(), name), ws.clone(), '=', ws.clone(), bind!(number.clone(), value)) => Parsed::item { name: Box::new(name), value: Box::new(value) }
+        (
+            bind!(ident.clone(), name),
+            ws.clone(),
+            '=',
+            ws.clone(),
+            bind!(number.clone(), value),
+        ) => Parsed::item {
+            name: Box::new(name),
+            value: Box::new(value),
+        }
     );
 
     // main = { SOI ~ item ~ ("," ~ item)* ~ EOI }
@@ -118,10 +102,15 @@ bind_slice!(
             ws.clone(),
             bind!(item.clone(), *item_val),
             ws.clone(),
-            repeat_ws((',', ws.clone(), bind!(item.clone(), *item_val)), ws.clone()),
+            repeat_ws(
+                (',', ws.clone(), bind!(item.clone(), *item_val)),
+                ws.clone(),
+            ),
             ws.clone(),
             end_of_input(),
-        ) => Parsed::main { item_val: item_val.into_iter().map(Box::new).collect() }
+        ) => Parsed::main {
+            item_val: item_val.into_iter().map(Box::new).collect(),
+        }
     );
 
     main.clone()

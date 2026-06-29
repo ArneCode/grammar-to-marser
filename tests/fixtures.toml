@@ -61,6 +61,11 @@ pest = "exact_repeat.pest"
 entry = "main"
 stem = "exact_repeat"
 
+[[fixture]]
+pest = "dual_trivia.pest"
+entry = "main"
+stem = "dual_trivia"
+
 # Website demo examples (generated into web/src/examples.js).
 # `stem` must match a [[fixture]] entry; `key` is the stable web picker id.
 
