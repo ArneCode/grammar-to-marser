@@ -602,7 +602,7 @@ fn collect_postfix_import_needs(
                 out.one_or_more = true;
             }
         }
-        PostfixOp::RepeatExact(n) => collect_bounded_repeat_import_needs(0, Some(*n), uses_ws, out),
+        PostfixOp::RepeatExact(n) => collect_bounded_repeat_import_needs(*n, Some(*n), uses_ws, out),
         PostfixOp::RepeatMin(n) => collect_bounded_repeat_import_needs(*n, None, uses_ws, out),
         PostfixOp::RepeatMax(n) => collect_bounded_repeat_import_needs(0, Some(*n), uses_ws, out),
         PostfixOp::RepeatMinMax(min, max) if *min == 0 => {
@@ -703,7 +703,6 @@ fn collect_ws_rule_import_needs(
     }
 
     if table.has_whitespace || table.has_comment {
-        needs.matcher = true;
         needs.many = true;
         if table.has_whitespace && table.has_comment {
             needs.one_of = true;
@@ -1013,7 +1012,7 @@ impl<'a> Generator<'a> {
             .map(|scc| recursive_arity(scc, self.graph))
             .max()
             .unwrap_or(1);
-        let mut parser = vec!["Parser".to_string(), "ParserCombinator".to_string()];
+        let mut parser = vec!["Parser".to_string()];
         if self.import_needs.recursive {
             parser.push("recursive".to_string());
             for n in 2..=max_recursive.min(12) {
@@ -2197,6 +2196,27 @@ pub fn prepare_codegen(
             .unwrap_or(ConvertError::SccTooLarge { size: 13 })
     })?;
     Ok((graph, sccs))
+}
+
+#[cfg(test)]
+mod import_needs_tests {
+    use super::*;
+
+    #[test]
+    fn exact_repeat_with_whitespace_does_not_need_optional() {
+        let mut needs = ImportNeeds::default();
+        collect_bounded_repeat_import_needs(6, Some(6), true, &mut needs);
+        assert!(needs.repeat);
+        assert!(!needs.optional);
+    }
+
+    #[test]
+    fn zero_to_max_repeat_with_whitespace_needs_optional() {
+        let mut needs = ImportNeeds::default();
+        collect_bounded_repeat_import_needs(0, Some(3), true, &mut needs);
+        assert!(needs.repeat);
+        assert!(needs.optional);
+    }
 }
 
 #[cfg(test)]

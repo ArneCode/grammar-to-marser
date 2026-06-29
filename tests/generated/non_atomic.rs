@@ -8,7 +8,6 @@ use marser::matcher::{
 use marser::one_of::one_of;
 use marser::parser::{
     Parser,
-    ParserCombinator,
 };
 
 // Pest `X+` requires a first item, then implicit whitespace only between

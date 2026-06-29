@@ -1,6 +1,5 @@
 use marser::capture;
 use marser::matcher::{
-    Matcher,
     many,
     one_or_more,
     start_of_input,
@@ -9,7 +8,6 @@ use marser::matcher::{
 use marser::one_of::one_of;
 use marser::parser::{
     Parser,
-    ParserCombinator,
 };
 
 // Typed parse tree returned by `grammar()`. Each Pest rule becomes a variant;

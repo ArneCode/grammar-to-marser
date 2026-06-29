@@ -11,7 +11,6 @@ use marser::matcher::{
 use marser::one_of::one_of;
 use marser::parser::{
     Parser,
-    ParserCombinator,
 };
 
 // Pest inserts implicit whitespace between repetitions, but not before the

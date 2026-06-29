@@ -4,7 +4,6 @@ use marser::matcher::{
 };
 use marser::parser::{
     Parser,
-    ParserCombinator,
 };
 
 // Typed parse tree returned by `grammar()`. Each Pest rule becomes a variant;
