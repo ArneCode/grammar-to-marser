@@ -2,11 +2,12 @@ use marser::capture;
 use marser::{
     label::WithLabel,
     matcher::{
-        AnyToken, Matcher, MatcherCombinator, commit_on, end_of_input, many, negative_lookahead,
-        one_or_more, optional, start_of_input,
+        AnyToken, Matcher, MatcherCombinator, commit_on, end_of_input, if_error::if_error, many,
+        negative_lookahead, one_or_more, optional, start_of_input,
     },
     one_of::one_of,
     parser::{DeferredWeak, Parser, ParserCombinator, recursive},
+    trace::WithTrace,
 };
 
 use crate::ast::*;
@@ -199,6 +200,13 @@ fn identifier<'src>() -> impl Parser<'src, &'src str, Output = String> + Clone {
         ), id as &'src str),
         ws(),
     ) => id.to_string())
+}
+
+fn identifier_syntax<'src, MRes>() -> impl Matcher<'src, &'src str, MRes> + Clone {
+    (
+        one_of(('_', 'a'..='z', 'A'..='Z')),
+        many(one_of(('_', 'a'..='z', 'A'..='Z', '0'..='9'))),
+    )
 }
 
 fn tag_id<'src>() -> impl Parser<'src, &'src str, Output = String> + Clone {
@@ -432,23 +440,14 @@ fn expression_grammar<'src>() -> impl Parser<'src, &'src str, Output = Expressio
     .erase_types()
 }
 
-fn next_rule_start<'src, MRes>() -> impl Matcher<'src, &'src str, MRes> + Clone {
+fn next_grammar_item_start<'src, MRes>() -> impl Matcher<'src, &'src str, MRes> + Clone {
+    let rule_start = (identifier_syntax(), ws(), '=');
+    let item_start = one_of(("///", rule_start));
+
     one_of((
         end_of_input(),
-        (
-            '}',
-            ws(),
-            identifier().ignore_result(),
-            ws(),
-            '=',
-        ),
-        (
-            newline(),
-            ws(),
-            identifier().ignore_result(),
-            ws(),
-            '=',
-        ),
+        ('}', ws(), item_start.clone()),
+        (newline(), ws(), item_start),
     ))
 }
 
@@ -460,22 +459,38 @@ fn recover_grammar_rule<'src>() -> impl Parser<'src, &'src str, Output = Grammar
         ws(),
         bind_slice!(
             many((
-                negative_lookahead(next_rule_start()),
+                negative_lookahead(next_grammar_item_start()),
                 AnyToken,
             )),
             text as &'src str
         ),
+        optional(('}', ws())),
         ws(),
     ) => GrammarItem::Rule(GrammarRule::Invalid {
         name,
         text: text.to_string(),
     }))
+    .trace_with_label("recover_grammar_rule")
     .erase_types()
+}
+
+fn unexpected_rule_body_tail<'src, MRes>() -> impl Matcher<'src, &'src str, MRes> + Clone
+where
+    MRes: marser::parser::capture::MatchResult,
+{
+    optional((
+        one_or_more((
+            negative_lookahead(one_of(('}', next_grammar_item_start()))),
+            AnyToken,
+        ))
+        .unwanted("unexpected text after expression"),
+        ws(),
+    ))
 }
 
 fn grammar_rule<'src>() -> impl Parser<'src, &'src str, Output = GrammarItem> + Clone {
     let expression = expression_grammar();
-    let rule = capture!((
+    capture!((
         commit_on(
             (bind!(identifier(), name), ws(), '='),
             (
@@ -486,6 +501,7 @@ fn grammar_rule<'src>() -> impl Parser<'src, &'src str, Output = GrammarItem> + 
                     (
                         bind!(expression.with_label("expression"), expr),
                         ws(),
+                        if_error(unexpected_rule_body_tail()),
                         '}'.try_insert_if_missing("missing '}'"),
                         ws(),
                     ),
@@ -497,13 +513,15 @@ fn grammar_rule<'src>() -> impl Parser<'src, &'src str, Output = GrammarItem> + 
         modifier: rule_mod,
         expression: expr,
     }))
-    .erase_types();
-
-    rule.recover_with(recover_grammar_rule())
+    .trace_with_label("grammar_rule")
+    .erase_types()
 }
 
 fn grammar_item<'src>() -> impl Parser<'src, &'src str, Output = GrammarItem> + Clone {
-    one_of((grammar_rule(), line_doc())).erase_types()
+    one_of((grammar_rule(), line_doc()))
+        .recover_with(recover_grammar_rule())
+        .trace_with_label("grammar_item")
+        .erase_types()
 }
 
 pub fn get_pest_grammar<'src>() -> impl Parser<'src, &'src str, Output = Grammar> + Clone {
@@ -533,9 +551,7 @@ mod tests {
         let grammar = get_pest_grammar().parse_str(src).unwrap().0;
         assert_eq!(grammar.items.len(), 1);
         match &grammar.items[0] {
-            GrammarItem::Rule(GrammarRule::Valid {
-                name, modifier, ..
-            }) => {
+            GrammarItem::Rule(GrammarRule::Valid { name, modifier, .. }) => {
                 assert_eq!(name, "rule");
                 assert_eq!(*modifier, None);
             }
@@ -551,10 +567,101 @@ good = { "ok" }"#;
         assert!(!errors.is_empty());
         assert_eq!(grammar.items.len(), 2);
         match &grammar.items[0] {
+            GrammarItem::Rule(rule) => assert_eq!(rule.name(), "bad"),
+            other => panic!("expected recovered rule, got {other:?}"),
+        }
+        match &grammar.items[1] {
+            GrammarItem::Rule(GrammarRule::Valid { name, .. }) => assert_eq!(name, "good"),
+            other => panic!("expected valid rule, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn recovers_invalid_braced_rule_and_parses_following_rule() {
+        let src = r#"bad = { "a" ~ }
+good = { "ok" }"#;
+        let (grammar, errors) = get_pest_grammar().parse_str(src).unwrap();
+        assert!(!errors.is_empty());
+        assert_eq!(grammar.items.len(), 2);
+        match &grammar.items[0] {
+            GrammarItem::Rule(rule) => assert_eq!(rule.name(), "bad"),
+            other => panic!("expected recovered rule, got {other:?}"),
+        }
+        match &grammar.items[1] {
+            GrammarItem::Rule(GrammarRule::Valid { name, .. }) => assert_eq!(name, "good"),
+            other => panic!("expected valid rule, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn recovery_rule_consumes_closing_brace_sync() {
+        let src = r#"bad = { "a" ~ }"#;
+        let (item, errors) = recover_grammar_rule().parse_str(src).unwrap();
+        assert!(errors.is_empty());
+        match item {
             GrammarItem::Rule(GrammarRule::Invalid { name, .. }) => assert_eq!(name, "bad"),
             other => panic!("expected invalid rule, got {other:?}"),
         }
+    }
+
+    #[cfg(feature = "parser-trace")]
+    #[test]
+    #[ignore = "debug helper for parser recovery traces"]
+    fn trace_invalid_braced_rule_recovery() {
+        use marser::trace::TraceFormat;
+
+        let src = r#"bad = { "a" ~ }
+good = { "ok" }"#;
+        let path = std::env::temp_dir().join("pest_to_marser_recovery_trace.json");
+        let result = get_pest_grammar().parse_str_with_trace_to_file(src, &path, TraceFormat::Json);
+        eprintln!("trace: {}", path.display());
+        eprintln!("result: {}", if result.is_ok() { "ok" } else { "err" });
+        let _ = result;
+    }
+
+    #[test]
+    fn recovers_multiple_invalid_braced_rules() {
+        let src = r#"bad = { "a" ~ }
+worse = { | }
+good = { "ok" }"#;
+        let (grammar, errors) = get_pest_grammar().parse_str(src).unwrap();
+        assert!(
+            errors.len() >= 2,
+            "expected at least two recovered errors, got {}",
+            errors.len()
+        );
+        assert_eq!(grammar.items.len(), 3);
+        match &grammar.items[0] {
+            GrammarItem::Rule(rule) => assert_eq!(rule.name(), "bad"),
+            other => panic!("expected recovered rule, got {other:?}"),
+        }
         match &grammar.items[1] {
+            GrammarItem::Rule(rule) => assert_eq!(rule.name(), "worse"),
+            other => panic!("expected recovered rule, got {other:?}"),
+        }
+        match &grammar.items[2] {
+            GrammarItem::Rule(GrammarRule::Valid { name, .. }) => assert_eq!(name, "good"),
+            other => panic!("expected valid rule, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn recovers_invalid_rule_before_line_doc() {
+        let src = r#"bad = { "a" ~ }
+/// parsed after recovery
+good = { "ok" }"#;
+        let (grammar, errors) = get_pest_grammar().parse_str(src).unwrap();
+        assert!(!errors.is_empty());
+        assert_eq!(grammar.items.len(), 3);
+        match &grammar.items[0] {
+            GrammarItem::Rule(rule) => assert_eq!(rule.name(), "bad"),
+            other => panic!("expected recovered rule, got {other:?}"),
+        }
+        match &grammar.items[1] {
+            GrammarItem::LineDoc(doc) => assert_eq!(doc, "parsed after recovery"),
+            other => panic!("expected line doc, got {other:?}"),
+        }
+        match &grammar.items[2] {
             GrammarItem::Rule(GrammarRule::Valid { name, .. }) => assert_eq!(name, "good"),
             other => panic!("expected valid rule, got {other:?}"),
         }

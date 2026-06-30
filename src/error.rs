@@ -4,24 +4,56 @@ use marser::error::{FurthestFailError, InlineError, ParserError};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ConvertError {
-    DuplicateRule { name: String },
-    UnknownEntryRule { name: String },
-    UndefinedRule { name: String },
-    UnsupportedFeature { feature: String, detail: String },
-    UnknownBuiltin { name: String },
-    NonProgressingRepetition { rule: String, detail: String },
-    NonFailingRepetition { rule: String, detail: String },
-    NonProgressingWhitespace { rule: String },
-    NonFailingWhitespace { rule: String },
-    LeftRecursion { chain: String },
-    SccTooLarge { size: usize },
-    UnreachableRule { name: String },
+    DuplicateRule {
+        name: String,
+    },
+    UnknownEntryRule {
+        name: String,
+    },
+    UndefinedRule {
+        name: String,
+    },
+    UnsupportedFeature {
+        feature: String,
+        detail: String,
+    },
+    UnknownBuiltin {
+        name: String,
+    },
+    NonProgressingRepetition {
+        rule: String,
+        detail: String,
+    },
+    NonFailingRepetition {
+        rule: String,
+        detail: String,
+    },
+    NonProgressingWhitespace {
+        rule: String,
+    },
+    NonFailingWhitespace {
+        rule: String,
+    },
+    LeftRecursion {
+        chain: String,
+    },
+    SccTooLarge {
+        size: usize,
+    },
+    UnreachableRule {
+        name: String,
+    },
     ParseError {
         message: String,
         span: Option<(usize, usize)>,
     },
-    InvalidRule { name: String, text: String },
-    CodegenFormatError { detail: String },
+    InvalidRule {
+        name: String,
+        text: String,
+    },
+    CodegenFormatError {
+        detail: String,
+    },
 }
 
 impl ConvertError {
@@ -60,9 +92,7 @@ pub fn format_span_location(source: &str, span: (usize, usize)) -> String {
     if start_line == end_line {
         format!("line {start_line}, columns {start_col}-{end_col}")
     } else {
-        format!(
-            "line {start_line}, column {start_col} through line {end_line}, column {end_col}"
-        )
+        format!("line {start_line}, column {start_col} through line {end_line}, column {end_col}")
     }
 }
 

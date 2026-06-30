@@ -11,13 +11,15 @@ use crate::error::ConvertError;
 use crate::expr::{Builtin, Expr, MatchingContext, SymKey};
 use crate::normalize::{RuleDef, RuleTable};
 use crate::output::{
-    analyze_rule_output, build_field_init, emit_parsed_enum, field_bind_var, field_sigil_map,
-    tagged_bind_var_name, variant_name, BindSigil, FieldKey, FieldKind, RuleOutputSpec,
+    BindSigil, FieldKey, FieldKind, RuleOutputSpec, analyze_rule_output, build_field_init,
+    emit_parsed_enum, field_bind_var, field_sigil_map, tagged_bind_var_name, variant_name,
 };
 use crate::scc::{
     Scc, condensation_topo, is_cyclic, partition_scc_for_recursion, recursive_arity, tarjan_scc,
 };
-use crate::specialize::{SpecializationGraph, build_specialization_graph, callee_context, collect_rule_deps};
+use crate::specialize::{
+    SpecializationGraph, build_specialization_graph, callee_context, collect_rule_deps,
+};
 use crate::trivia::compute_matcher_only_rules;
 
 const RUST_KEYWORDS: &[&str] = &[
@@ -557,7 +559,12 @@ fn uses_ws_context(table: &RuleTable, ctx: MatchingContext) -> bool {
     (table.has_whitespace || table.has_comment) && ctx == MatchingContext::NormalWs
 }
 
-fn collect_bounded_repeat_import_needs(min: u32, max: Option<u32>, uses_ws: bool, out: &mut ImportNeeds) {
+fn collect_bounded_repeat_import_needs(
+    min: u32,
+    max: Option<u32>,
+    uses_ws: bool,
+    out: &mut ImportNeeds,
+) {
     if uses_ws {
         if min == 0 {
             let Some(max) = max else {
@@ -602,7 +609,9 @@ fn collect_postfix_import_needs(
                 out.one_or_more = true;
             }
         }
-        PostfixOp::RepeatExact(n) => collect_bounded_repeat_import_needs(*n, Some(*n), uses_ws, out),
+        PostfixOp::RepeatExact(n) => {
+            collect_bounded_repeat_import_needs(*n, Some(*n), uses_ws, out)
+        }
         PostfixOp::RepeatMin(n) => collect_bounded_repeat_import_needs(*n, None, uses_ws, out),
         PostfixOp::RepeatMax(n) => collect_bounded_repeat_import_needs(0, Some(*n), uses_ws, out),
         PostfixOp::RepeatMinMax(min, max) if *min == 0 => {
@@ -1127,7 +1136,13 @@ impl<'a> Generator<'a> {
             }
         }
 
-        if !ws_emitted && self.graph.nodes.iter().any(|sym| sym.context == MatchingContext::NormalWs) {
+        if !ws_emitted
+            && self
+                .graph
+                .nodes
+                .iter()
+                .any(|sym| sym.context == MatchingContext::NormalWs)
+        {
             self.emit_ws_matcher(&mut out)?;
         }
 
@@ -1200,10 +1215,8 @@ impl<'a> Generator<'a> {
         }
         if !self.sym_names.contains_key(sym) {
             let contexts_by_rule = contexts_by_rule(&self.graph.nodes);
-            self.sym_names.insert(
-                sym.clone(),
-                binding_name_for_graph(sym, &contexts_by_rule),
-            );
+            self.sym_names
+                .insert(sym.clone(), binding_name_for_graph(sym, &contexts_by_rule));
         }
         let name = self.sym_names[sym].clone();
         self.emit_rule_comment(out, &sym.rule, "    ");
@@ -1281,10 +1294,8 @@ impl<'a> Generator<'a> {
         }
         if !self.sym_names.contains_key(sym) {
             let contexts_by_rule = contexts_by_rule(&self.graph.nodes);
-            self.sym_names.insert(
-                sym.clone(),
-                binding_name_for_graph(sym, &contexts_by_rule),
-            );
+            self.sym_names
+                .insert(sym.clone(), binding_name_for_graph(sym, &contexts_by_rule));
         }
         let name = self.sym_names[sym].clone();
         self.emit_rule_comment(out, &sym.rule, "    ");
@@ -1426,11 +1437,9 @@ impl<'a> Generator<'a> {
             format_expr_str(&inner, inner_column)?
         };
         let construction = Self::build_variant_construction(&sym.rule, &spec, &rule.expr);
-        let formatted_construction =
-            format_construction_for_capture(&construction, inner_column)?;
-        let capture = format!(
-            "capture!(\n{formatted_grammar} => {formatted_construction}\n{close_indent})"
-        );
+        let formatted_construction = format_construction_for_capture(&construction, inner_column)?;
+        let capture =
+            format!("capture!(\n{formatted_grammar} => {formatted_construction}\n{close_indent})");
         Ok(match layout {
             BodyLayout::AssignmentContinuation => capture,
             BodyLayout::Block => indent_lines(&capture, base_column),
@@ -1528,17 +1537,15 @@ impl<'a> Generator<'a> {
                 let bind_name = tagged_bind_var_name(tag, core_expr);
                 match field_kind {
                     FieldKind::ParsedChild => {
-                        let rule_name = crate::output::unwrap_to_rule_ref(core_expr).expect(
-                            "tagged parsed-child field must refer to a rule",
-                        );
+                        let rule_name = crate::output::unwrap_to_rule_ref(core_expr)
+                            .expect("tagged parsed-child field must refer to a rule");
                         let rule = &self.graph.rule_map[rule_name];
                         let sym = SymKey {
                             rule: rule_name.to_string(),
                             context: callee_context(ctx, rule.modifier.as_ref()),
                         };
                         let reference = self.sym_ref(&sym, recursive_members);
-                        let bind =
-                            self.trace_bind(&reference, sigil.prefix(), &bind_name, rule);
+                        let bind = self.trace_bind(&reference, sigil.prefix(), &bind_name, rule);
                         match postfix {
                             None => bind,
                             Some(op) => self.gen_matcher_postfix(&bind, op, ctx),
@@ -1564,18 +1571,16 @@ impl<'a> Generator<'a> {
                     }
                 }
             }
-            (Expr::Sequence(items), mode) => {
-                self.gen_sequence(
-                    items,
-                    ctx,
-                    recursive_members,
-                    mode,
-                    spec,
-                    sigil_map,
-                    in_lookahead,
-                    suppress_bind,
-                )
-            }
+            (Expr::Sequence(items), mode) => self.gen_sequence(
+                items,
+                ctx,
+                recursive_members,
+                mode,
+                spec,
+                sigil_map,
+                in_lookahead,
+                suppress_bind,
+            ),
             (Expr::Choice(items), mode) => {
                 let parts: Vec<_> = items
                     .iter()
@@ -1937,10 +1942,7 @@ impl<'a> Generator<'a> {
 
     fn gen_builtin(&self, b: Builtin) -> String {
         if should_hoist_builtin(b) && self.referenced_builtins.contains(&b) {
-            return format!(
-                "capture!({}.clone() => ())",
-                sanitize_ident(b.name())
-            );
+            return format!("capture!({}.clone() => ())", sanitize_ident(b.name()));
         }
         match b {
             Builtin::Soi => "start_of_input()".to_string(),
@@ -2058,19 +2060,15 @@ fn expr_needs_bounded_repeat(expr: &Expr) -> bool {
     match expr {
         Expr::Postfix { expr, op } => {
             let bounded = match op {
-                PostfixOp::RepeatExact(_) | PostfixOp::RepeatMax(_) | PostfixOp::RepeatMinMax(_, _) => {
-                    true
-                }
+                PostfixOp::RepeatExact(_)
+                | PostfixOp::RepeatMax(_)
+                | PostfixOp::RepeatMinMax(_, _) => true,
                 PostfixOp::RepeatMin(n) => *n > 0,
-                PostfixOp::Optional
-                | PostfixOp::Repeat
-                | PostfixOp::RepeatOnce => false,
+                PostfixOp::Optional | PostfixOp::Repeat | PostfixOp::RepeatOnce => false,
             };
             bounded || expr_needs_bounded_repeat(expr)
         }
-        Expr::Sequence(items) | Expr::Choice(items) => {
-            items.iter().any(expr_needs_bounded_repeat)
-        }
+        Expr::Sequence(items) | Expr::Choice(items) => items.iter().any(expr_needs_bounded_repeat),
         Expr::Prefix { expr, .. } | Expr::Tagged { expr, .. } => expr_needs_bounded_repeat(expr),
         Expr::Empty
         | Expr::Builtin(_)
@@ -2084,10 +2082,8 @@ fn expr_needs_bounded_repeat(expr: &Expr) -> bool {
 fn expr_needs_ws_repeat_helper(expr: &Expr) -> bool {
     match expr {
         Expr::Postfix { expr, op } => {
-            matches!(
-                op,
-                PostfixOp::Repeat | PostfixOp::RepeatMin(0)
-            ) || expr_needs_ws_repeat_helper(expr)
+            matches!(op, PostfixOp::Repeat | PostfixOp::RepeatMin(0))
+                || expr_needs_ws_repeat_helper(expr)
         }
         Expr::Sequence(items) | Expr::Choice(items) => {
             items.iter().any(expr_needs_ws_repeat_helper)
@@ -2271,7 +2267,7 @@ mod format_tests {
     #[test]
     fn field_sigil_marks_repeated_rule_refs_as_multiple() {
         use crate::normalize::RuleDef;
-        use crate::output::{analyze_rule_output, field_sigil_map, FieldKey};
+        use crate::output::{FieldKey, analyze_rule_output, field_sigil_map};
 
         let expr = Expr::Sequence(vec![
             Expr::RuleRef("item".to_string()),
@@ -2295,9 +2291,10 @@ mod format_tests {
             expr,
             docs: Vec::new(),
         };
-        let rules: HashMap<String, &RuleDef> = [("item".to_string(), &item), ("main".to_string(), &main)]
-            .into_iter()
-            .collect();
+        let rules: HashMap<String, &RuleDef> =
+            [("item".to_string(), &item), ("main".to_string(), &main)]
+                .into_iter()
+                .collect();
         let spec = analyze_rule_output(&main.expr, &rules);
         let sigils = field_sigil_map(&spec);
         assert_eq!(
@@ -2309,7 +2306,7 @@ mod format_tests {
     #[test]
     fn field_sigil_uses_optional_for_partial_one_of() {
         use crate::normalize::RuleDef;
-        use crate::output::{analyze_rule_output, field_sigil_map, FieldKey};
+        use crate::output::{FieldKey, analyze_rule_output, field_sigil_map};
 
         let expr = Expr::Choice(vec![
             Expr::Literal(" ".to_string()),
@@ -2327,10 +2324,12 @@ mod format_tests {
             expr,
             docs: Vec::new(),
         };
-        let rules: HashMap<String, &RuleDef> =
-            [("newline".to_string(), &newline), ("main".to_string(), &main)]
-                .into_iter()
-                .collect();
+        let rules: HashMap<String, &RuleDef> = [
+            ("newline".to_string(), &newline),
+            ("main".to_string(), &main),
+        ]
+        .into_iter()
+        .collect();
         let spec = analyze_rule_output(&main.expr, &rules);
         let sigils = field_sigil_map(&spec);
         assert_eq!(
@@ -2361,7 +2360,10 @@ mod format_tests {
     fn substitute_bind_placeholders_handles_ci_ch_char_literals() {
         let source = "bind_slice!((ci_ch('s'), ci_ch('e')), select as &'src str)";
         let substituted = substitute_bind_placeholders(source);
-        assert!(substituted.contains("__pest_fmt_bind_slice__((ci_ch('s'), ci_ch('e')), select as &'src str)"));
+        assert!(
+            substituted
+                .contains("__pest_fmt_bind_slice__((ci_ch('s'), ci_ch('e')), select as &'src str)")
+        );
         assert_eq!(restore_bind_placeholders(&substituted), source);
     }
 
@@ -2375,7 +2377,9 @@ mod format_tests {
     fn substitute_bind_placeholders_handles_bind_slice_with_lifetime() {
         let source = "repeat_ws((bind_slice!(one_of(('*', '/')), *op as &'src str), ws.clone()))";
         let substituted = substitute_bind_placeholders(source);
-        assert!(substituted.contains("__pest_fmt_bind_slice__(one_of(('*', '/')), *op as &'src str)"));
+        assert!(
+            substituted.contains("__pest_fmt_bind_slice__(one_of(('*', '/')), *op as &'src str)")
+        );
         assert!(!substituted.contains("bind_slice!("));
         assert_eq!(restore_bind_placeholders(&substituted), source);
     }
@@ -2384,7 +2388,10 @@ mod format_tests {
     fn format_expr_str_pretty_prints_bind_expressions() {
         let source = "(start_of_input(), ws.clone(), bind!(item.clone(), *item_val), ws.clone(), repeat_ws((',', ws.clone(), bind!(item.clone(), *item_val)), ws.clone()), ws.clone(), end_of_input())";
         let out = format_expr_str(source, 8).unwrap();
-        assert!(out.lines().count() > 1, "expected multiline output, got:\n{out}");
+        assert!(
+            out.lines().count() > 1,
+            "expected multiline output, got:\n{out}"
+        );
         assert!(out.contains("bind!(item.clone(), *item_val)"));
     }
 
@@ -2392,17 +2399,17 @@ mod format_tests {
     fn restore_bind_placeholders_strips_trailing_commas() {
         let formatted = "__pest_fmt_bind_slice__((ci_ch('s'),), select as &'src str,)";
         let restored = restore_bind_placeholders(formatted);
-        assert_eq!(
-            restored,
-            "bind_slice!((ci_ch('s'),), select as &'src str)"
-        );
+        assert_eq!(restored, "bind_slice!((ci_ch('s'),), select as &'src str)");
     }
 
     #[test]
     fn substitute_bind_placeholders_handles_optional_sigil() {
         let source = r#"one_of((' ', '\t', bind!(newline.clone(), ?newline_val)))"#;
         let substituted = substitute_bind_placeholders(source);
-        assert!(substituted.contains("__pest_fmt_bind__(newline.clone(), __pest_fmt_qmark__newline_val)"));
+        assert!(
+            substituted
+                .contains("__pest_fmt_bind__(newline.clone(), __pest_fmt_qmark__newline_val)")
+        );
         assert_eq!(restore_bind_placeholders(&substituted), source);
         format_expr_str(source, 8).unwrap();
     }
@@ -2423,7 +2430,8 @@ mod format_tests {
 
     #[test]
     fn format_expr_str_breaks_variant_construction() {
-        let source = "Parsed::term { factor_val: factor_val.into_iter().map(Box::new).collect(), op: op }";
+        let source =
+            "Parsed::term { factor_val: factor_val.into_iter().map(Box::new).collect(), op: op }";
         let out = format_expr_str(source, 12).unwrap();
         assert!(
             out.lines().count() > 1,

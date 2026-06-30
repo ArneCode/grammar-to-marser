@@ -74,10 +74,7 @@ pub enum Expr {
     Choice(Vec<Expr>),
     Prefix { op: PrefixOp, expr: Box<Expr> },
     Postfix { expr: Box<Expr>, op: PostfixOp },
-    Tagged {
-        tag: String,
-        expr: Box<Expr>,
-    },
+    Tagged { tag: String, expr: Box<Expr> },
 }
 
 impl Expr {

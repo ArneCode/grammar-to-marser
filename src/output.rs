@@ -201,12 +201,10 @@ pub fn tagged_bind_var_name(tag: &str, inner_expr: &Expr) -> String {
 pub fn field_bind_var(field: &FieldSpec, expr: &Expr) -> String {
     match &field.key {
         FieldKey::Rule(rule) => format!("{}_val", sanitize_field_name(rule)),
-        FieldKey::Tag(tag) => {
-            tagged_rule_ref_for_tag(expr, tag).map_or_else(
-                || sanitize_field_name(tag),
-                |rule| tagged_bind_var_name(tag, &Expr::RuleRef(rule)),
-            )
-        }
+        FieldKey::Tag(tag) => tagged_rule_ref_for_tag(expr, tag).map_or_else(
+            || sanitize_field_name(tag),
+            |rule| tagged_bind_var_name(tag, &Expr::RuleRef(rule)),
+        ),
     }
 }
 
@@ -279,23 +277,25 @@ fn collect_field_occurrences(
             }
         }
         Expr::Choice(items) => {
-            let per_alt: Vec<(Vec<FieldKey>, HashMap<FieldKey, (FieldKind, Vec<OccurrenceClass>)>)> =
-                items
-                    .iter()
-                    .map(|item| {
-                        let mut alt_order = Vec::new();
-                        let mut alt_map = HashMap::new();
-                        collect_field_occurrences(
-                            item,
-                            rules,
-                            in_lookahead,
-                            wrapping,
-                            &mut alt_order,
-                            &mut alt_map,
-                        );
-                        (alt_order, alt_map)
-                    })
-                    .collect();
+            let per_alt: Vec<(
+                Vec<FieldKey>,
+                HashMap<FieldKey, (FieldKind, Vec<OccurrenceClass>)>,
+            )> = items
+                .iter()
+                .map(|item| {
+                    let mut alt_order = Vec::new();
+                    let mut alt_map = HashMap::new();
+                    collect_field_occurrences(
+                        item,
+                        rules,
+                        in_lookahead,
+                        wrapping,
+                        &mut alt_order,
+                        &mut alt_map,
+                    );
+                    (alt_order, alt_map)
+                })
+                .collect();
             let num_alts = per_alt.len();
             let mut ordered_keys = Vec::new();
             let mut seen_keys = HashSet::new();

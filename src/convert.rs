@@ -1,6 +1,8 @@
 use crate::ast::Grammar;
 use crate::codegen::{CodegenOptions, generate_rust, prepare_codegen};
-use crate::error::{parse_error_from_furthest_fail, parse_error_from_parser_error, ConvertError, ConvertResult};
+use crate::error::{
+    ConvertError, ConvertResult, parse_error_from_furthest_fail, parse_error_from_parser_error,
+};
 use crate::grammar::get_pest_grammar;
 use crate::normalize::{RuleDef, RuleTable, build_rule_table};
 use crate::validate::validate_all;
@@ -30,20 +32,17 @@ fn resolve_entry_rule(rules: &[RuleDef], entry_rule: &str) -> ConvertResult<Stri
         return Ok(entry_rule.to_string());
     }
 
-    rules
-        .last()
-        .map(|rule| rule.name.clone())
-        .ok_or_else(|| {
-            vec![ConvertError::UnknownEntryRule {
-                name: "(no rules defined)".to_string(),
-            }]
-        })
+    rules.last().map(|rule| rule.name.clone()).ok_or_else(|| {
+        vec![ConvertError::UnknownEntryRule {
+            name: "(no rules defined)".to_string(),
+        }]
+    })
 }
 
 pub fn convert_pest_source(source: &str, options: &ConvertOptions) -> ConvertResult<String> {
-    let (grammar, parse_errors) = get_pest_grammar().parse_str(source).map_err(|err| {
-        vec![parse_error_from_furthest_fail(source, err)]
-    })?;
+    let (grammar, parse_errors) = get_pest_grammar()
+        .parse_str(source)
+        .map_err(|err| vec![parse_error_from_furthest_fail(source, err)])?;
 
     let mut errors: Vec<ConvertError> = parse_errors
         .iter()
@@ -85,9 +84,9 @@ fn convert_with_table(
 }
 
 pub fn list_pest_rules(source: &str) -> ConvertResult<Vec<String>> {
-    let (grammar, parse_errors) = get_pest_grammar().parse_str(source).map_err(|err| {
-        vec![parse_error_from_furthest_fail(source, err)]
-    })?;
+    let (grammar, parse_errors) = get_pest_grammar()
+        .parse_str(source)
+        .map_err(|err| vec![parse_error_from_furthest_fail(source, err)])?;
 
     let errors: Vec<ConvertError> = parse_errors
         .iter()

@@ -3,7 +3,7 @@ use std::collections::{HashSet, VecDeque};
 use crate::ast::Modifier;
 use crate::expr::MatchingContext;
 use crate::normalize::{RuleDef, RuleTable};
-use crate::specialize::{collect_rule_deps, SpecializationGraph};
+use crate::specialize::{SpecializationGraph, collect_rule_deps};
 
 /// Rules reachable only from the `WHITESPACE` / `COMMENT` closure and not from
 /// content rules in the specialization graph.
@@ -89,7 +89,10 @@ mod tests {
             assert!(trivia.contains(name), "expected {name} to be trivia-only");
         }
         for name in ["main", "item", "ident", "number"] {
-            assert!(!trivia.contains(name), "expected {name} not to be trivia-only");
+            assert!(
+                !trivia.contains(name),
+                "expected {name} not to be trivia-only"
+            );
         }
     }
 

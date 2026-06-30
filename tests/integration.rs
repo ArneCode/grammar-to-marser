@@ -82,8 +82,8 @@ fn committed_generated_snapshots_match_converter() {
     for fixture in fixture_manifest().fixture {
         let pest_path = format!("tests/fixtures/{}", fixture.pest);
         let generated_path = format!("tests/generated/{}.rs", fixture.stem);
-        let src = std::fs::read_to_string(&pest_path)
-            .unwrap_or_else(|e| panic!("read {pest_path}: {e}"));
+        let src =
+            std::fs::read_to_string(&pest_path).unwrap_or_else(|e| panic!("read {pest_path}: {e}"));
         let expected = std::fs::read_to_string(&generated_path)
             .unwrap_or_else(|e| panic!("read {generated_path}: {e}"));
         let actual = convert_pest_source(

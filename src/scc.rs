@@ -194,10 +194,7 @@ pub fn recursive_arity(scc: &Scc, graph: &SpecializationGraph) -> usize {
     partition_scc_for_recursion(scc, graph).0.len()
 }
 
-fn internal_edges(
-    scc: &Scc,
-    graph: &SpecializationGraph,
-) -> HashMap<SymKey, HashSet<SymKey>> {
+fn internal_edges(scc: &Scc, graph: &SpecializationGraph) -> HashMap<SymKey, HashSet<SymKey>> {
     let members: HashSet<_> = scc.members.iter().cloned().collect();
     let mut edges = HashMap::new();
     for member in &scc.members {
@@ -214,10 +211,7 @@ fn internal_edges(
     edges
 }
 
-fn induced_subgraph_has_cycle(
-    nodes: &[SymKey],
-    edges: &HashMap<SymKey, HashSet<SymKey>>,
-) -> bool {
+fn induced_subgraph_has_cycle(nodes: &[SymKey], edges: &HashMap<SymKey, HashSet<SymKey>>) -> bool {
     if nodes.is_empty() {
         return false;
     }
@@ -229,10 +223,7 @@ fn induced_subgraph_has_cycle(
     topo_sort_subset(nodes, edges).len() < nodes.len()
 }
 
-fn topo_sort_subset(
-    nodes: &[SymKey],
-    edges: &HashMap<SymKey, HashSet<SymKey>>,
-) -> Vec<SymKey> {
+fn topo_sort_subset(nodes: &[SymKey], edges: &HashMap<SymKey, HashSet<SymKey>>) -> Vec<SymKey> {
     let set: HashSet<_> = nodes.iter().cloned().collect();
     let mut indegree: HashMap<SymKey, usize> = nodes.iter().map(|n| (n.clone(), 0)).collect();
     let mut dependents: HashMap<SymKey, Vec<SymKey>> = HashMap::new();
@@ -330,19 +321,13 @@ mod fvs_tests {
     }
 
     fn cycle_graph(edges: &[(&str, &str)]) -> SpecializationGraph {
-        let members: HashSet<SymKey> = edges
-            .iter()
-            .flat_map(|(a, b)| [sym(a), sym(b)])
-            .collect();
+        let members: HashSet<SymKey> = edges.iter().flat_map(|(a, b)| [sym(a), sym(b)]).collect();
         let mut graph_edges: HashMap<SymKey, HashSet<SymKey>> = HashMap::new();
         for member in &members {
             graph_edges.insert(member.clone(), HashSet::new());
         }
         for (from, to) in edges {
-            graph_edges
-                .get_mut(&sym(from))
-                .unwrap()
-                .insert(sym(to));
+            graph_edges.get_mut(&sym(from)).unwrap().insert(sym(to));
         }
         SpecializationGraph {
             nodes: members,
@@ -356,11 +341,7 @@ mod fvs_tests {
     #[test]
     fn non_fvs_topo_respects_dependencies() {
         let scc = cycle_scc(&["expr", "term", "factor"]);
-        let mut graph = cycle_graph(&[
-            ("expr", "term"),
-            ("term", "factor"),
-            ("factor", "expr"),
-        ]);
+        let mut graph = cycle_graph(&[("expr", "term"), ("term", "factor"), ("factor", "expr")]);
         graph.entry = sym("expr");
         let (fvs, non_fvs) = partition_scc_for_recursion(&scc, &graph);
         assert_eq!(fvs.len(), 1);

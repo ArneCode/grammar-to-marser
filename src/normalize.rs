@@ -40,9 +40,7 @@ pub fn build_rule_table(grammar: &Grammar) -> ConvertResult<RuleTable> {
                     expression,
                 } => {
                     if !seen.insert(name.clone()) {
-                        errors.push(ConvertError::DuplicateRule {
-                            name: name.clone(),
-                        });
+                        errors.push(ConvertError::DuplicateRule { name: name.clone() });
                         continue;
                     }
                     if name == "WHITESPACE" {

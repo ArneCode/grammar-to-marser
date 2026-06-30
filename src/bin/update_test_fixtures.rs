@@ -16,8 +16,7 @@ struct Fixture {
 }
 
 fn main() {
-    let manifest_src =
-        fs::read_to_string("tests/fixtures.toml").expect("read tests/fixtures.toml");
+    let manifest_src = fs::read_to_string("tests/fixtures.toml").expect("read tests/fixtures.toml");
     let manifest: Manifest = toml::from_str(&manifest_src).expect("parse tests/fixtures.toml");
 
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
