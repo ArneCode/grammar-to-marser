@@ -11,8 +11,8 @@ use marser::parser::{
     recursive,
 };
 
-// Pest inserts implicit whitespace between repetitions, but not before the
-// first item. This keeps `X*` equivalent to Pest while avoiding duplicated
+// Inserts whitespace between repetitions, but not before the first item.
+// This keeps `X*` equivalent to the source grammar while avoiding duplicated
 // generated matcher bodies.
 fn repeat_ws<'src, MRes, Item, Ws>(
     item: Item,
@@ -25,9 +25,9 @@ where
     optional((item.clone(), many((ws, item))))
 }
 
-// Typed parse tree returned by `grammar()`. Each Pest rule becomes a variant;
-// `#field = ...` bindings become struct fields, and atomic (`@`) leaves store
-// their matched slice as `value`.
+// Typed parse tree returned by `grammar()`. Each grammar rule becomes a variant;
+// labeled bindings become struct fields, and leaf rules store their matched slice
+// as `value`.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Parsed<'src> {
     expr {

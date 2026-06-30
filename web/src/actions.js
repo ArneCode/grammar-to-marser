@@ -1,7 +1,7 @@
 import JSZip from "jszip";
 import { cargoToml, mainRs, readme } from "./templates.js";
 import { shareUrl } from "./share.js";
-import { flashButton } from "./ui.js";
+import { flashButton, setStatus } from "./ui.js";
 
 const PROJECT_NAME_KEY = "grammar-to-marser.project-name";
 
@@ -11,6 +11,8 @@ export async function copyText(text, button) {
     flashButton(button);
   } catch (err) {
     console.error("copy failed", err);
+    flashButton(button, "Failed!");
+    setStatus("Copy failed — clipboard access denied", "#f48771");
   }
 }
 
@@ -24,10 +26,6 @@ export function downloadBlob(filename, content, mime = "text/plain") {
   URL.revokeObjectURL(url);
 }
 
-export function downloadGrammarRs(code) {
-  downloadBlob("grammar.rs", code);
-}
-
 export function getProjectName() {
   try {
     return localStorage.getItem(PROJECT_NAME_KEY) || "grammar-parser";
@@ -36,16 +34,8 @@ export function getProjectName() {
   }
 }
 
-export function promptProjectName() {
-  const current = getProjectName();
-  const name = window.prompt("Project name (zip filename and Cargo package):", current);
-  if (name == null) {
-    return null;
-  }
-  if (name.trim() === "") {
-    return current;
-  }
-  const sanitized = name.trim().replace(/[^a-zA-Z0-9_-]/g, "-");
+export function setProjectName(name) {
+  const sanitized = name.trim().replace(/[^a-zA-Z0-9_-]/g, "-") || "grammar-parser";
   try {
     localStorage.setItem(PROJECT_NAME_KEY, sanitized);
   } catch {
@@ -55,20 +45,20 @@ export function promptProjectName() {
 }
 
 export async function downloadProjectZip({
-  pestSource,
+  grammarSource,
   grammarRs,
   entryRule,
   syntax = "pest",
   emitTrace = false,
+  projectName,
 }) {
-  const projectName = promptProjectName();
-  if (projectName == null) return;
+  const name = projectName ?? getProjectName();
 
   const zip = new JSZip();
 
-  zip.file("Cargo.toml", cargoToml(projectName, emitTrace));
-  zip.file(syntax === "peg" ? "grammar.peg" : "grammar.pest", pestSource);
-  zip.file("README.md", readme(projectName, entryRule, emitTrace));
+  zip.file("Cargo.toml", cargoToml(name, emitTrace));
+  zip.file(syntax === "peg" ? "grammar.peg" : "grammar.pest", grammarSource);
+  zip.file("README.md", readme(name, entryRule, emitTrace));
   zip.file("src/grammar.rs", grammarRs);
   zip.file("src/main.rs", mainRs(emitTrace));
 
@@ -76,7 +66,7 @@ export async function downloadProjectZip({
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `${projectName}.zip`;
+  a.download = `${name}.zip`;
   a.click();
   URL.revokeObjectURL(url);
 }
@@ -98,37 +88,66 @@ export function readFileAsText(file) {
   });
 }
 
-export function initFileImport({ onOpen }) {
+/** Detect grammar syntax from file extension. Returns "pest", "peg", or null. */
+function detectSyntaxFromFilename(filename) {
+  const ext = filename.split(".").pop()?.toLowerCase();
+  if (ext === "pest") return "pest";
+  if (ext === "peg") return "peg";
+  return null;
+}
+
+/**
+ * @param {{ onOpen: (text: string, filename: string) => void, onSyntaxDetected?: (syntax: string) => void }} options
+ */
+export function initFileImport({ onOpen, onSyntaxDetected }) {
   const input = document.getElementById("file-input");
   const openBtn = document.getElementById("open-file-btn");
-  const pestHost = document.getElementById("pest-editor");
+  const grammarHost = document.getElementById("grammar-editor");
 
   if (openBtn && input) {
     openBtn.addEventListener("click", () => input.click());
     input.addEventListener("change", async () => {
       const file = input.files?.[0];
       if (!file) return;
-      const text = await readFileAsText(file);
-      onOpen(text, file.name);
+      try {
+        const text = await readFileAsText(file);
+        const detected = detectSyntaxFromFilename(file.name);
+        if (detected && onSyntaxDetected) {
+          onSyntaxDetected(detected);
+        }
+        onOpen(text, file.name);
+      } catch (err) {
+        console.error("file read failed", err);
+        setStatus("Failed to read file", "#f48771");
+      }
       input.value = "";
     });
   }
 
-  if (pestHost) {
-    pestHost.addEventListener("dragover", (e) => {
+  if (grammarHost) {
+    grammarHost.addEventListener("dragover", (e) => {
       e.preventDefault();
-      pestHost.classList.add("drag-over");
+      grammarHost.classList.add("drag-over");
     });
-    pestHost.addEventListener("dragleave", () => {
-      pestHost.classList.remove("drag-over");
+    grammarHost.addEventListener("dragleave", () => {
+      grammarHost.classList.remove("drag-over");
     });
-    pestHost.addEventListener("drop", async (e) => {
+    grammarHost.addEventListener("drop", async (e) => {
       e.preventDefault();
-      pestHost.classList.remove("drag-over");
+      grammarHost.classList.remove("drag-over");
       const file = e.dataTransfer?.files?.[0];
       if (!file) return;
-      const text = await readFileAsText(file);
-      onOpen(text, file.name);
+      try {
+        const text = await readFileAsText(file);
+        const detected = detectSyntaxFromFilename(file.name);
+        if (detected && onSyntaxDetected) {
+          onSyntaxDetected(detected);
+        }
+        onOpen(text, file.name);
+      } catch (err) {
+        console.error("file read failed", err);
+        setStatus("Failed to read file", "#f48771");
+      }
     });
   }
 }

@@ -17,7 +17,7 @@ const parseDiagnosticField = StateField.define({
   },
 });
 
-function trailingInputOffset(source, errorMessage) {
+export function trailingInputOffset(source, errorMessage) {
   const match = /trailing input: (\d+) byte\(s\) remain unparsed/.exec(errorMessage);
   if (!match) return null;
   const remaining = parseInt(match[1], 10);
@@ -114,64 +114,166 @@ export function setParseDiagnostic(view, diagnostic) {
 }
 
 export function initOnboarding() {
-  initIntro();
+  initModal();
   initTour();
+  initTracePopup();
 }
 
-function initIntro() {
-  const section = document.getElementById("intro-section");
-  const dismiss = document.getElementById("intro-dismiss");
-  const tourBtn = document.getElementById("intro-tour-btn");
-  if (!section || !dismiss) return;
+function initTracePopup() {
+  const popup = document.getElementById("trace-popup");
+  const backdrop = document.getElementById("trace-popup-backdrop");
+  const openBtn = document.getElementById("trace-help-btn");
+  const closeBtn = document.getElementById("trace-popup-close");
+  if (!popup || !openBtn) return;
 
-  const key = "grammar-to-marser.intro-dismissed";
+  function openPopup() {
+    popup.hidden = false;
+  }
+
+  function closePopup() {
+    popup.hidden = true;
+  }
+
+  openBtn.addEventListener("click", openPopup);
+  closeBtn?.addEventListener("click", closePopup);
+  backdrop?.addEventListener("click", closePopup);
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !popup.hidden) {
+      closePopup();
+    }
+  });
+}
+
+const DISMISS_KEY = "grammar-to-marser.intro-dismissed";
+
+function shouldShowModal() {
   try {
+    // Migrate old key
     if (localStorage.getItem("grammar-to-marser.onboarding-dismissed") === "1") {
-      localStorage.setItem(key, "1");
+      localStorage.setItem(DISMISS_KEY, "1");
       localStorage.removeItem("grammar-to-marser.onboarding-dismissed");
     }
+    return localStorage.getItem(DISMISS_KEY) !== "1";
   } catch {
-    // ignore
+    return false;
   }
-  if (localStorage.getItem(key) === "1") {
-    section.hidden = true;
+}
+
+function initModal() {
+  const modal = document.getElementById("onboarding-modal");
+  const backdrop = document.getElementById("onboarding-backdrop");
+  const continueBtn = document.getElementById("modal-continue");
+  const tourBtn = document.getElementById("modal-tour");
+  const skipCheckbox = document.getElementById("modal-skip-next");
+  if (!modal) return;
+
+  function closeModal() {
+    modal.hidden = true;
+    if (skipCheckbox?.checked) {
+      try {
+        localStorage.setItem(DISMISS_KEY, "1");
+      } catch {
+        // ignore
+      }
+    }
   }
 
-  dismiss.addEventListener("click", () => {
-    section.hidden = true;
-    try {
-      localStorage.setItem(key, "1");
-    } catch {
-      // ignore
-    }
-    maybeStartTour();
-  });
+  if (shouldShowModal()) {
+    modal.hidden = false;
+  }
+
+  continueBtn?.addEventListener("click", closeModal);
+  backdrop?.addEventListener("click", closeModal);
 
   tourBtn?.addEventListener("click", () => {
+    closeModal();
     startTour({ force: true });
   });
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !modal.hidden) {
+      closeModal();
+    }
+  });
+}
+
+export function initDownloadDialog({ getDefaultName, onConfirm }) {
+  const dialog = document.getElementById("download-dialog");
+  const backdrop = document.getElementById("download-backdrop");
+  const openBtn = document.getElementById("download-project-btn");
+  const cancelBtn = document.getElementById("download-cancel-btn");
+  const confirmBtn = document.getElementById("download-confirm-btn");
+  const nameInput = document.getElementById("download-name-input");
+  if (!dialog || !openBtn) return;
+
+  function openDialog() {
+    if (nameInput) nameInput.value = getDefaultName?.() ?? "grammar-parser";
+    dialog.hidden = false;
+    nameInput?.focus();
+    nameInput?.select();
+  }
+
+  function closeDialog() {
+    dialog.hidden = true;
+  }
+
+  openBtn.addEventListener("click", () => {
+    if (openBtn.disabled) return;
+    openDialog();
+  });
+
+  cancelBtn?.addEventListener("click", closeDialog);
+  backdrop?.addEventListener("click", closeDialog);
+
+  confirmBtn?.addEventListener("click", () => {
+    const name = nameInput?.value ?? "";
+    closeDialog();
+    onConfirm?.(name);
+  });
+
+  nameInput?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      const name = nameInput.value ?? "";
+      closeDialog();
+      onConfirm?.(name);
+    }
+  });
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !dialog.hidden) {
+      closeDialog();
+    }
+  });
+}
+
+export function updateGrammarPanel(syntax) {
+  const pestContent = document.getElementById("grammar-pest");
+  const pegContent = document.getElementById("grammar-peg");
+  if (pestContent) pestContent.hidden = syntax !== "pest";
+  if (pegContent) pegContent.hidden = syntax !== "peg";
 }
 
 const TOUR_STEPS = [
   {
+    targetId: "mode-switch",
+    text: "Choose Pest or PEG — both grammar formats are supported. Switching modes loads the last grammar you used in that format.",
+  },
+  {
     targetId: "examples-select",
-    text: "Start here — load a sample grammar to see live conversion.",
+    text: "Load a built-in example to see a complete conversion. Each example demonstrates grammar constructs you can use in your own rules.",
   },
   {
-    targetId: "entry-rule",
-    text: "Set the entry rule — the top-level rule Pest would parse (e.g. expr).",
+    targetId: "grammar-editor",
+    text: "Paste or edit your grammar here — the Rust parser updates live as you type. Drag a .pest or .peg file onto this area to open it. Unsupported constructs show as errors you can click to jump to.",
   },
   {
-    targetId: "pest-editor",
-    text: "Edit your grammar here, or drag a .pest file onto this pane.",
+    targetId: "rust-pane",
+    text: "The generated Rust parser appears here. Use Copy to grab the code, Download project to get a ready-to-build Cargo .zip, or Share to create a link you can send to others.",
   },
   {
-    targetId: "share-link-btn",
-    text: "Share link copies a URL with your grammar embedded.",
-  },
-  {
-    targetId: "download-project-btn",
-    text: "Download project — get a ready-to-run Cargo zip with README.",
+    targetId: "grammar-panel",
+    text: "Grammar reference shows the constructs this converter supports, plus links to the Pest book and Marser docs. Check here first if a conversion fails.",
   },
 ];
 
@@ -200,9 +302,13 @@ function showTourStep(index) {
 
   const target = document.getElementById(step.targetId);
   if (target) {
+    // Auto-open <details> elements so the content is visible during the tour step
+    if (target.tagName === "DETAILS" && !target.open) {
+      target.open = true;
+    }
     target.classList.add("tour-highlight");
     tourHighlightEl = target;
-    target.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    target.scrollIntoView({ block: "center", behavior: "smooth" });
   }
 
   text.textContent = `Step ${index + 1} of ${TOUR_STEPS.length}: ${step.text}`;
@@ -221,15 +327,6 @@ function finishTour() {
   } catch {
     // ignore
   }
-}
-
-function maybeStartTour() {
-  try {
-    if (localStorage.getItem("grammar-to-marser.tour-done") === "1") return;
-  } catch {
-    // ignore
-  }
-  startTour();
 }
 
 function startTour({ force = false } = {}) {
@@ -260,28 +357,23 @@ function initTour() {
     }
   });
 
-  try {
-    const introDismissed = localStorage.getItem("grammar-to-marser.intro-dismissed") === "1";
-    const tourDone = localStorage.getItem("grammar-to-marser.tour-done") === "1";
-    if (introDismissed && !tourDone) {
-      setTimeout(() => startTour(), 400);
-    }
-  } catch {
-    // ignore
-  }
+  // Tour button in the toolbar
+  document.getElementById("tour-btn")?.addEventListener("click", () => {
+    startTour({ force: true });
+  });
 }
 
 export function initPaneResizer(onResize) {
   const resizer = document.getElementById("pane-resizer");
-  const pestPane = document.getElementById("pest-pane");
+  const grammarPane = document.getElementById("grammar-pane");
   const rustPane = document.getElementById("rust-pane");
   const panes = document.getElementById("panes");
-  if (!resizer || !pestPane || !rustPane || !panes) return;
+  if (!resizer || !grammarPane || !rustPane || !panes) return;
 
   const storageKey = "grammar-to-marser.split-ratio";
   const saved = parseFloat(localStorage.getItem(storageKey) || "0.5");
   if (!Number.isNaN(saved) && saved > 0.1 && saved < 0.9) {
-    pestPane.style.flex = `${saved} 1 0`;
+    grammarPane.style.flex = `${saved} 1 0`;
     rustPane.style.flex = `${1 - saved} 1 0`;
   }
 
@@ -291,7 +383,7 @@ export function initPaneResizer(onResize) {
     const rect = panes.getBoundingClientRect();
     if (rect.width <= 0) return;
     const ratio = Math.min(0.85, Math.max(0.15, (clientX - rect.left) / rect.width));
-    pestPane.style.flex = `${ratio} 1 0`;
+    grammarPane.style.flex = `${ratio} 1 0`;
     rustPane.style.flex = `${1 - ratio} 1 0`;
     onResize();
   }
@@ -301,12 +393,12 @@ export function initPaneResizer(onResize) {
     e.preventDefault();
     const rect = panes.getBoundingClientRect();
     if (rect.width <= 0) return;
-    const pestWidth = pestPane.getBoundingClientRect().width;
-    const currentRatio = pestWidth / rect.width;
+    const grammarWidth = grammarPane.getBoundingClientRect().width;
+    const currentRatio = grammarWidth / rect.width;
     const step = e.shiftKey ? 0.1 : 0.02;
     const delta = e.key === "ArrowRight" ? step : -step;
     const ratio = Math.min(0.85, Math.max(0.15, currentRatio + delta));
-    pestPane.style.flex = `${ratio} 1 0`;
+    grammarPane.style.flex = `${ratio} 1 0`;
     rustPane.style.flex = `${1 - ratio} 1 0`;
     onResize();
     try {
@@ -332,8 +424,8 @@ export function initPaneResizer(onResize) {
     dragging = false;
     resizer.classList.remove("dragging");
     const rect = panes.getBoundingClientRect();
-    const pestWidth = pestPane.getBoundingClientRect().width;
-    const ratio = pestWidth / rect.width;
+    const grammarWidth = grammarPane.getBoundingClientRect().width;
+    const ratio = grammarWidth / rect.width;
     try {
       localStorage.setItem(storageKey, String(ratio));
     } catch {
@@ -372,7 +464,12 @@ export function updateEntryRuleHint(entryRule, ruleNames) {
   }
 }
 
-export function renderErrors(errors, onErrorClick = null) {
+/**
+ * @param {Array} errors
+ * @param {function|null} onErrorClick
+ * @param {function|null} isJumpable - optional predicate returning true if an error can be jumped to
+ */
+export function renderErrors(errors, onErrorClick = null, isJumpable = null) {
   const list = document.getElementById("error-list");
   const copyBtn = document.getElementById("copy-errors-btn");
   if (!list) return;
@@ -389,9 +486,15 @@ export function renderErrors(errors, onErrorClick = null) {
   for (const [index, err] of (errors || []).entries()) {
     const li = document.createElement("li");
     li.textContent = typeof err === "string" ? err : err.message;
-    if (typeof onErrorClick === "function") {
-      li.style.cursor = "pointer";
+
+    const canJump =
+      typeof onErrorClick === "function" &&
+      (isJumpable == null || isJumpable(err));
+
+    if (canJump) {
+      li.dataset.jumpable = "1";
       li.tabIndex = 0;
+      li.setAttribute("role", "button");
       li.title = "Jump to error location";
       li.addEventListener("click", () => onErrorClick(index, err));
       li.addEventListener("keydown", (event) => {
@@ -415,18 +518,23 @@ export function errorsAsText(errors) {
     .join("\n");
 }
 
-export function setShareOutdated(outdated) {
-  const badge = document.getElementById("share-outdated");
-  if (badge) {
-    badge.hidden = !outdated;
-  }
-}
-
-export function setPestFilename(name) {
-  const el = document.getElementById("pest-filename");
+export function setGrammarFilename(name) {
+  const el = document.getElementById("grammar-filename");
   if (!el) return;
   if (name) {
     el.textContent = name;
+    el.hidden = false;
+  } else {
+    el.textContent = "";
+    el.hidden = true;
+  }
+}
+
+export function setExampleDescription(text) {
+  const el = document.getElementById("example-description");
+  if (!el) return;
+  if (text) {
+    el.textContent = text;
     el.hidden = false;
   } else {
     el.textContent = "";
@@ -446,10 +554,11 @@ export function setStatus(text, color) {
 export function flashButton(button, label = "Copied!") {
   if (!button) return;
   const original = button.textContent;
+  const wasDisabled = button.disabled;
   button.textContent = label;
   button.disabled = true;
   setTimeout(() => {
     button.textContent = original;
-    button.disabled = false;
+    button.disabled = wasDisabled;
   }, 1500);
 }

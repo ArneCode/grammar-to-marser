@@ -2,8 +2,8 @@ import LZString from "lz-string";
 
 const HASH_PREFIX = "#s=";
 
-export function encodeShareState({ pest, entryRule, syntax = "pest" }) {
-  const json = JSON.stringify({ pest, entryRule, syntax });
+export function encodeShareState({ source, entryRule, syntax = "pest" }) {
+  const json = JSON.stringify({ source, entryRule, syntax });
   return HASH_PREFIX + LZString.compressToEncodedURIComponent(json);
 }
 
@@ -16,9 +16,9 @@ export function decodeShareState(hash) {
   if (!json) return null;
   try {
     const data = JSON.parse(json);
-    if (typeof data.pest !== "string") return null;
+    if (typeof data.source !== "string") return null;
     return {
-      pest: data.pest,
+      source: data.source,
       entryRule: typeof data.entryRule === "string" ? data.entryRule : "",
       syntax: typeof data.syntax === "string" ? data.syntax : "pest",
     };
@@ -27,11 +27,11 @@ export function decodeShareState(hash) {
   }
 }
 
-export function currentShareHash({ pest, entryRule, syntax }) {
-  return encodeShareState({ pest, entryRule, syntax });
+export function currentShareHash({ source, entryRule, syntax }) {
+  return encodeShareState({ source, entryRule, syntax });
 }
 
-export function shareUrl({ pest, entryRule, syntax }) {
+export function shareUrl({ source, entryRule, syntax }) {
   const base = window.location.href.split("#")[0];
-  return base + encodeShareState({ pest, entryRule, syntax });
+  return base + encodeShareState({ source, entryRule, syntax });
 }

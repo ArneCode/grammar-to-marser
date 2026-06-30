@@ -2,6 +2,7 @@ import { basicSetup, EditorView } from "codemirror";
 import { EditorState } from "@codemirror/state";
 import { StreamLanguage, indentUnit } from "@codemirror/language";
 import { rust } from "@codemirror/lang-rust";
+import { placeholder } from "@codemirror/view";
 import { vscodeDark } from "@uiw/codemirror-theme-vscode";
 
 const BUILTINS = new Set([
@@ -126,15 +127,16 @@ export function createRustEditor(parent) {
         EditorState.readOnly.of(true),
         EditorView.editable.of(false),
         EditorView.lineWrapping,
+        placeholder("Generated Rust parser will appear here…"),
       ],
     }),
     parent,
   });
 }
 
-export function fitEditors(pestEditor, rustEditor) {
+export function fitEditors(grammarEditor, rustEditor) {
   for (const [view, hostId] of [
-    [pestEditor, "pest-editor"],
+    [grammarEditor, "grammar-editor"],
     [rustEditor, "rust-editor"],
   ]) {
     const host = document.getElementById(hostId);
@@ -143,7 +145,7 @@ export function fitEditors(pestEditor, rustEditor) {
       view.dom.style.height = `${height}px`;
     }
   }
-  pestEditor.requestMeasure();
+  grammarEditor.requestMeasure();
   rustEditor.requestMeasure();
 }
 

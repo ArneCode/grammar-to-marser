@@ -10,30 +10,62 @@ import {
   downloadProjectZip,
   copyShareLink,
   initFileImport,
+  getProjectName,
+  setProjectName,
 } from "./actions.js";
-import { decodeShareState, currentShareHash } from "./share.js";
+import { decodeShareState } from "./share.js";
 import {
   initOnboarding,
+  initDownloadDialog,
   initPaneResizer,
   updateRuleDatalist,
   updateEntryRuleHint,
+  updateGrammarPanel,
   renderErrors,
   clearErrors,
   errorsAsText,
-  setShareOutdated,
-  setPestFilename,
+  setGrammarFilename,
   setStatus,
+  setExampleDescription,
   setParseDiagnostic,
   parseDiagnosticExtensions,
+  trailingInputOffset,
 } from "./ui.js";
 
-const STORAGE_KEY_PEST_SOURCE = "grammar-to-marser.pest.source";
+const STORAGE_KEY_GRAMMAR_SOURCE = "grammar-to-marser.grammar.source";
 const STORAGE_KEY_PEG_SOURCE = "grammar-to-marser.peg.source";
-const STORAGE_KEY_PEST_ENTRY = "grammar-to-marser.pest.entry-rule";
+const STORAGE_KEY_GRAMMAR_ENTRY = "grammar-to-marser.grammar.entry-rule";
 const STORAGE_KEY_PEG_ENTRY = "grammar-to-marser.peg.entry-rule";
 const STORAGE_KEY_EMIT_COMMENTS = "grammar-to-marser.emit-comments";
 const STORAGE_KEY_EMIT_TRACE = "grammar-to-marser.emit-trace";
 const STORAGE_KEY_SYNTAX = "grammar-to-marser.syntax";
+
+const LEGACY_KEY_PEST_SOURCE = "grammar-to-marser.pest.source";
+const LEGACY_KEY_PEST_ENTRY = "grammar-to-marser.pest.entry-rule";
+
+function migrateLocalStorage() {
+  try {
+    const legacySource = localStorage.getItem(LEGACY_KEY_PEST_SOURCE);
+    if (legacySource != null && !localStorage.getItem(STORAGE_KEY_GRAMMAR_SOURCE)) {
+      localStorage.setItem(STORAGE_KEY_GRAMMAR_SOURCE, legacySource);
+    }
+    if (legacySource != null) {
+      localStorage.removeItem(LEGACY_KEY_PEST_SOURCE);
+    }
+
+    const legacyEntry = localStorage.getItem(LEGACY_KEY_PEST_ENTRY);
+    if (legacyEntry != null && !localStorage.getItem(STORAGE_KEY_GRAMMAR_ENTRY)) {
+      localStorage.setItem(STORAGE_KEY_GRAMMAR_ENTRY, legacyEntry);
+    }
+    if (legacyEntry != null) {
+      localStorage.removeItem(LEGACY_KEY_PEST_ENTRY);
+    }
+  } catch {
+    // ignore
+  }
+}
+
+migrateLocalStorage();
 
 function loadSaved(key) {
   try {
@@ -65,11 +97,11 @@ function initialDoc(key, fallback) {
 }
 
 function sourceKeyForSyntax(syntax) {
-  return syntax === "peg" ? STORAGE_KEY_PEG_SOURCE : STORAGE_KEY_PEST_SOURCE;
+  return syntax === "peg" ? STORAGE_KEY_PEG_SOURCE : STORAGE_KEY_GRAMMAR_SOURCE;
 }
 
 function entryKeyForSyntax(syntax) {
-  return syntax === "peg" ? STORAGE_KEY_PEG_ENTRY : STORAGE_KEY_PEST_ENTRY;
+  return syntax === "peg" ? STORAGE_KEY_PEG_ENTRY : STORAGE_KEY_GRAMMAR_ENTRY;
 }
 
 function defaultDocForSyntax(syntax) {
@@ -87,22 +119,84 @@ const entryRuleEl = document.getElementById("entry-rule");
 const examplesSelect = document.getElementById("examples-select");
 const emitCommentsEl = document.getElementById("emit-comments");
 const emitTraceEl = document.getElementById("emit-trace");
-const syntaxEl = document.getElementById("input-syntax");
 
 let debounceTimer = null;
 let convertFn = null;
 let listRulesFn = null;
-let lastShareHash = "";
 let lastRawOutput = "";
 let lastErrors = [];
 let lastConvertMs = null;
 let ruleNames = [];
 let activeExampleKey = "";
 
-function findMatchingExample(pest, entryRule, syntax) {
+// ── Mode switch (replaces <select id="input-syntax">) ──
+
+const shared = decodeShareState(window.location.hash);
+let currentSyntax = shared?.syntax ?? loadSaved(STORAGE_KEY_SYNTAX) ?? "pest";
+
+function getSyntax() {
+  return currentSyntax;
+}
+
+function setSyntax(syntax) {
+  currentSyntax = syntax;
+  document.querySelectorAll(".mode-btn").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.syntax === syntax);
+    btn.setAttribute("aria-pressed", btn.dataset.syntax === syntax ? "true" : "false");
+  });
+}
+
+/** Update all copy that depends on the current mode. */
+function updateModeUI(syntax) {
+  const subtitle = document.getElementById("mode-subtitle");
+  if (subtitle) {
+    subtitle.textContent = syntax === "peg"
+      ? "PEG → Marser Rust converter"
+      : "Pest → Marser Rust converter";
+  }
+  updateGrammarPanel(syntax);
+}
+
+function handleSyntaxChange(targetSyntax) {
+  setSyntax(targetSyntax);
+  save(STORAGE_KEY_SYNTAX, targetSyntax);
+  const nextSource =
+    loadSaved(sourceKeyForSyntax(targetSyntax)) ?? defaultDocForSyntax(targetSyntax);
+  const nextEntry =
+    loadSaved(entryKeyForSyntax(targetSyntax)) ?? defaultEntryForSyntax(targetSyntax);
+  setEditorContent(grammarEditor, nextSource);
+  save(sourceKeyForSyntax(targetSyntax), nextSource);
+  if (entryRuleEl) {
+    entryRuleEl.value = nextEntry;
+    save(entryKeyForSyntax(targetSyntax), nextEntry);
+  }
+  activeExampleKey = findMatchingExample(nextSource, nextEntry, targetSyntax);
+  populateExamplesSelect();
+  if (examplesSelect) {
+    examplesSelect.value = activeExampleKey || "";
+  }
+  setGrammarFilename(null);
+  setExampleDescription(activeExampleKey ? (EXAMPLES[activeExampleKey]?.description ?? null) : null);
+  updateModeUI(targetSyntax);
+  scheduleConvert();
+}
+
+// Wire mode buttons
+document.querySelectorAll(".mode-btn").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    const target = btn.dataset.syntax;
+    if (target && target !== getSyntax()) {
+      handleSyntaxChange(target);
+    }
+  });
+});
+
+// ──────────────────────────────────────────────
+
+function findMatchingExample(source, entryRule, syntax) {
   const entry = (entryRule ?? "").trim();
   for (const [key, ex] of Object.entries(EXAMPLES)) {
-    if (ex.syntax === syntax && ex.pest === pest && ex.entryRule === entry) {
+    if (ex.syntax === syntax && ex.pest === source && ex.entryRule === entry) {
       return key;
     }
   }
@@ -137,24 +231,22 @@ function clearActiveExample() {
   if (examplesSelect) {
     examplesSelect.value = "";
   }
+  setExampleDescription(null);
 }
 
-const shared = decodeShareState(window.location.hash);
-const savedSyntax =
-  shared?.syntax ??
-  loadSaved(STORAGE_KEY_SYNTAX) ??
-  "pest";
-const defaultDoc = defaultDocForSyntax(savedSyntax);
-const savedPest =
-  shared?.pest ?? initialDoc(sourceKeyForSyntax(savedSyntax), defaultDoc);
+// ── Init from saved/shared state ──
+
+const defaultDoc = defaultDocForSyntax(currentSyntax);
+const savedGrammar =
+  shared?.source ?? initialDoc(sourceKeyForSyntax(currentSyntax), defaultDoc);
 
 const savedEntry =
   shared?.entryRule ??
-  loadSaved(entryKeyForSyntax(savedSyntax)) ??
-  defaultEntryForSyntax(savedSyntax) ??
+  loadSaved(entryKeyForSyntax(currentSyntax)) ??
+  defaultEntryForSyntax(currentSyntax) ??
   EXAMPLES[DEFAULT_EXAMPLE_KEY].entryRule;
 
-activeExampleKey = findMatchingExample(savedPest, savedEntry, savedSyntax);
+activeExampleKey = findMatchingExample(savedGrammar, savedEntry, currentSyntax);
 populateExamplesSelect();
 if (examplesSelect && activeExampleKey) {
   examplesSelect.value = activeExampleKey;
@@ -172,16 +264,19 @@ if (emitTraceEl) {
   emitTraceEl.checked = loadBool(STORAGE_KEY_EMIT_TRACE, false);
 }
 
-if (syntaxEl) {
-  syntaxEl.value = savedSyntax;
+// Apply initial mode to buttons and surrounding copy
+setSyntax(currentSyntax);
+updateModeUI(currentSyntax);
+
+// Show initial example description if one is active
+if (activeExampleKey && EXAMPLES[activeExampleKey]?.description) {
+  setExampleDescription(EXAMPLES[activeExampleKey].description);
 }
 
-function getPestSource() {
-  return pestEditor.state.doc.toString();
-}
+// ──────────────────────────────────────────────
 
-function getSyntax() {
-  return syntaxEl?.value ?? "pest";
+function getGrammarSource() {
+  return grammarEditor.state.doc.toString();
 }
 
 function getEntryRule() {
@@ -200,24 +295,39 @@ function updateRustPane() {
   setEditorContent(rustEditor, lastRawOutput);
   const copyRustBtn = document.getElementById("copy-rust-btn");
   const downloadProjectBtn = document.getElementById("download-project-btn");
-  const disabled = !lastRawOutput || lastErrors.length > 0;
-  if (copyRustBtn) copyRustBtn.disabled = disabled;
-  if (downloadProjectBtn) downloadProjectBtn.disabled = disabled;
-}
+  const hasErrors = lastErrors.length > 0;
+  const hasOutput = !!lastRawOutput;
+  const disabled = !hasOutput || hasErrors;
 
-function markShareState() {
-  const hash = currentShareHash({
-    pest: getPestSource(),
-    entryRule: getEntryRule(),
-    syntax: getSyntax(),
-  });
-  setShareOutdated(hash !== lastShareHash);
+  if (copyRustBtn) {
+    copyRustBtn.disabled = disabled;
+    if (hasErrors) {
+      copyRustBtn.title = "Fix conversion errors first";
+    } else if (!hasOutput) {
+      copyRustBtn.title = "Convert a grammar to enable copy";
+    } else {
+      copyRustBtn.title = "";
+    }
+  }
+
+  if (downloadProjectBtn) {
+    downloadProjectBtn.disabled = disabled;
+    if (hasErrors) {
+      downloadProjectBtn.title = "Fix conversion errors to download";
+    } else if (!hasOutput) {
+      downloadProjectBtn.title = "Convert a grammar to enable download";
+    } else {
+      downloadProjectBtn.title = "Download a Cargo project zip with your grammar and generated parser";
+    }
+  }
 }
 
 function scheduleConvert() {
   clearTimeout(debounceTimer);
+  if (convertFn) {
+    setStatus("Converting...", "#666");
+  }
   debounceTimer = setTimeout(runConvert, 300);
-  markShareState();
 }
 
 function wasmErrors(err) {
@@ -241,16 +351,6 @@ function wasmErrors(err) {
   return [{ message: String(err) }];
 }
 
-function trailingInputOffset(source, errorMessage) {
-  const match = /trailing input: (\d+) byte\(s\) remain unparsed/.exec(errorMessage);
-  if (!match) return null;
-  const remaining = parseInt(match[1], 10);
-  if (Number.isNaN(remaining)) return null;
-  const offset = source.length - remaining;
-  if (offset < 0 || offset > source.length) return null;
-  return { from: offset, to: source.length };
-}
-
 function errorRange(error, source) {
   if (error && typeof error.from === "number" && typeof error.to === "number") {
     const from = error.from;
@@ -261,33 +361,37 @@ function errorRange(error, source) {
 }
 
 function focusError(error) {
-  const source = getPestSource();
+  const source = getGrammarSource();
   const range = errorRange(error, source);
   if (!range) return;
-  pestEditor.dispatch({
+  grammarEditor.dispatch({
     selection: { anchor: range.from, head: range.to },
     scrollIntoView: true,
   });
-  pestEditor.focus();
+  grammarEditor.focus();
+}
+
+/** Returns true if this error can be jumped to in the editor. */
+function isJumpable(error) {
+  return errorRange(error, getGrammarSource()) !== null;
 }
 
 function refreshRules() {
   if (!listRulesFn) return;
   try {
-    ruleNames = listRulesFn(getPestSource(), getSyntax());
+    ruleNames = listRulesFn(getGrammarSource(), getSyntax());
     updateRuleDatalist(ruleNames);
     updateEntryRuleHint(getEntryRule(), ruleNames);
   } catch (err) {
-    ruleNames = [];
     updateRuleDatalist([]);
-    updateEntryRuleHint(getEntryRule(), []);
+    updateEntryRuleHint(getEntryRule(), ruleNames);
   }
 }
 
 function runConvert() {
   if (!convertFn) return;
 
-  const source = getPestSource();
+  const source = getGrammarSource();
   const entry = getEntryRule().trim();
   const emitComments = getEmitComments();
   const emitTrace = getEmitTrace();
@@ -302,8 +406,8 @@ function runConvert() {
     lastErrors = [];
     setEditorContent(rustEditor, code);
     clearErrors();
-    setParseDiagnostic(pestEditor, null);
-    setStatus(`OK · ${Math.round(lastConvertMs)}ms`, "#4ec9b0");
+    setParseDiagnostic(grammarEditor, null);
+    setStatus(`Converted in ${Math.round(lastConvertMs)}ms`, "#4ec9b0");
     updateRustPane();
   } catch (err) {
     lastConvertMs = performance.now() - t0;
@@ -312,17 +416,16 @@ function runConvert() {
     setEditorContent(rustEditor, "");
     renderErrors(lastErrors, (_index, error) => {
       focusError(error);
-    });
-    setParseDiagnostic(pestEditor, lastErrors);
-    setStatus(`Error · ${Math.round(lastConvertMs)}ms`, "#f48771");
+    }, isJumpable);
+    setParseDiagnostic(grammarEditor, lastErrors);
+    setStatus("Conversion failed", "#f48771");
     updateRustPane();
   }
-  markShareState();
 }
 
-const pestEditor = createPestEditor(
-  document.getElementById("pest-editor"),
-  savedPest,
+const grammarEditor = createPestEditor(
+  document.getElementById("grammar-editor"),
+  savedGrammar,
   (text) => {
     save(sourceKeyForSyntax(getSyntax()), text);
     if (activeExampleKey) {
@@ -333,7 +436,7 @@ const pestEditor = createPestEditor(
     }
     scheduleConvert();
   },
-  parseDiagnosticExtensions(() => getPestSource()),
+  parseDiagnosticExtensions(() => getGrammarSource()),
 );
 
 const rustEditor = createRustEditor(document.getElementById("rust-editor"));
@@ -360,28 +463,6 @@ emitTraceEl?.addEventListener("change", () => {
   scheduleConvert();
 });
 
-syntaxEl?.addEventListener("change", () => {
-  const targetSyntax = getSyntax();
-  save(STORAGE_KEY_SYNTAX, targetSyntax);
-  const nextSource =
-    loadSaved(sourceKeyForSyntax(targetSyntax)) ?? defaultDocForSyntax(targetSyntax);
-  const nextEntry =
-    loadSaved(entryKeyForSyntax(targetSyntax)) ?? defaultEntryForSyntax(targetSyntax);
-  setEditorContent(pestEditor, nextSource);
-  save(sourceKeyForSyntax(targetSyntax), nextSource);
-  if (entryRuleEl) {
-    entryRuleEl.value = nextEntry;
-    save(entryKeyForSyntax(targetSyntax), nextEntry);
-  }
-  activeExampleKey = findMatchingExample(nextSource, nextEntry, targetSyntax);
-  populateExamplesSelect();
-  if (examplesSelect) {
-    examplesSelect.value = activeExampleKey || "";
-  }
-  setPestFilename(null);
-  scheduleConvert();
-});
-
 examplesSelect?.addEventListener("change", () => {
   const key = examplesSelect.value;
   if (!key || !EXAMPLES[key]) {
@@ -390,18 +471,19 @@ examplesSelect?.addEventListener("change", () => {
   }
   const ex = EXAMPLES[key];
   setActiveExample(key);
-  setEditorContent(pestEditor, ex.pest);
+  setEditorContent(grammarEditor, ex.pest);
   save(sourceKeyForSyntax(getSyntax()), ex.pest);
   if (entryRuleEl) {
     entryRuleEl.value = ex.entryRule;
     save(entryKeyForSyntax(getSyntax()), ex.entryRule);
   }
-  setPestFilename(null);
+  setGrammarFilename(null);
+  setExampleDescription(ex.description ?? null);
   scheduleConvert();
 });
 
-document.getElementById("copy-pest-btn")?.addEventListener("click", (e) => {
-  copyText(getPestSource(), e.currentTarget);
+document.getElementById("copy-grammar-btn")?.addEventListener("click", (e) => {
+  copyText(getGrammarSource(), e.currentTarget);
 });
 
 document.getElementById("copy-rust-btn")?.addEventListener("click", (e) => {
@@ -412,43 +494,45 @@ document.getElementById("copy-errors-btn")?.addEventListener("click", (e) => {
   copyText(errorsAsText(lastErrors), e.currentTarget);
 });
 
-document.getElementById("download-project-btn")?.addEventListener("click", () => {
-  if (!lastRawOutput || lastErrors.length > 0) return;
-  downloadProjectZip({
-    pestSource: getPestSource(),
-    grammarRs: lastRawOutput,
-    entryRule: getEntryRule(),
-    syntax: getSyntax(),
-    emitTrace: getEmitTrace(),
-  });
+initDownloadDialog({
+  getDefaultName: () => getProjectName(),
+  onConfirm: (rawName) => {
+    const projectName = setProjectName(rawName);
+    downloadProjectZip({
+      grammarSource: getGrammarSource(),
+      grammarRs: lastRawOutput,
+      entryRule: getEntryRule(),
+      syntax: getSyntax(),
+      emitTrace: getEmitTrace(),
+      projectName,
+    });
+  },
 });
 
 document.getElementById("share-link-btn")?.addEventListener("click", (e) => {
   copyShareLink(
-    { pest: getPestSource(), entryRule: getEntryRule(), syntax: getSyntax() },
+    { source: getGrammarSource(), entryRule: getEntryRule(), syntax: getSyntax() },
     e.currentTarget,
-  ).then(() => {
-    lastShareHash = currentShareHash({
-      pest: getPestSource(),
-      entryRule: getEntryRule(),
-      syntax: getSyntax(),
-    });
-    setShareOutdated(false);
-  });
+  );
 });
 
 initFileImport({
   onOpen: (text, filename) => {
-    setEditorContent(pestEditor, text);
+    setEditorContent(grammarEditor, text);
     save(sourceKeyForSyntax(getSyntax()), text);
-    setPestFilename(filename);
+    setGrammarFilename(filename);
     clearActiveExample();
     scheduleConvert();
+  },
+  onSyntaxDetected: (detectedSyntax) => {
+    if (detectedSyntax !== getSyntax()) {
+      handleSyntaxChange(detectedSyntax);
+    }
   },
 });
 
 function onResize() {
-  fitEditors(pestEditor, rustEditor);
+  fitEditors(grammarEditor, rustEditor);
 }
 
 window.addEventListener("resize", onResize);
@@ -463,16 +547,10 @@ async function initWasm() {
     convertFn = wasm.convert;
     listRulesFn = wasm.list_grammar_rules;
     setStatus("Ready", "#666");
-    lastShareHash = currentShareHash({
-      pest: getPestSource(),
-      entryRule: getEntryRule(),
-      syntax: getSyntax(),
-    });
-    setShareOutdated(false);
     runConvert();
   } catch (err) {
-    setStatus("WASM load failed", "#f48771");
-    renderErrors([String(err)]);
+    setStatus("Failed to load", "#f48771");
+    renderErrors([{ message: "App failed to load. Try refreshing the page." }]);
   }
 }
 

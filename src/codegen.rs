@@ -1082,8 +1082,8 @@ impl<'a> Generator<'a> {
         if self.needs_ws_repeat_helper {
             if self.options.emit_comments {
                 out.push_str(
-                    "// Pest inserts implicit whitespace between repetitions, but not before the\n\
-                     // first item. This keeps `X*` equivalent to Pest while avoiding duplicated\n\
+                    "// Inserts whitespace between repetitions, but not before the first item.\n\
+                     // This keeps `X*` equivalent to the source grammar while avoiding duplicated\n\
                      // generated matcher bodies.\n",
                 );
             }
@@ -1103,9 +1103,9 @@ impl<'a> Generator<'a> {
         if self.needs_ws_repeat_once_helper {
             if self.options.emit_comments {
                 out.push_str(
-                    "// Pest `X+` requires a first item, then implicit whitespace only between\n\
-                     // later repetitions. This helper preserves that shape without duplicating\n\
-                     // the generated matcher body for `X`.\n",
+                    "// `X+` requires a first item, then whitespace only between later repetitions.\n\
+                     // This helper preserves that shape without duplicating the generated matcher\n\
+                     // body for `X`.\n",
                 );
             }
             out.push_str(
@@ -1124,7 +1124,7 @@ impl<'a> Generator<'a> {
         if self.needs_ci_ch_helper {
             if self.options.emit_comments {
                 out.push_str(
-                    "// Pest `^\"...\"` literals match ASCII letters case-insensitively.\n",
+                    "// Case-insensitive string literals match ASCII letters without regard to case.\n",
                 );
             }
             out.push_str(
@@ -1135,9 +1135,9 @@ impl<'a> Generator<'a> {
         }
         if self.options.emit_comments {
             out.push_str(
-                "// Typed parse tree returned by `grammar()`. Each Pest rule becomes a variant;\n\
-                 // `#field = ...` bindings become struct fields, and atomic (`@`) leaves store\n\
-                 // their matched slice as `value`.\n",
+                "// Typed parse tree returned by `grammar()`. Each grammar rule becomes a variant;\n\
+                 // labeled bindings become struct fields, and leaf rules store their matched slice\n\
+                 // as `value`.\n",
             );
         }
         out.push_str(&emit_parsed_enum(&self.table.rules, &self.matcher_only));

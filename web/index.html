@@ -8,28 +8,37 @@
   <meta property="og:description" content="Paste a Pest or PEG grammar, get a runnable Marser parser in Rust — no install required.">
   <title>grammar-to-marser — grammar → Marser Rust converter</title>
   <link rel="stylesheet" href="./styles.css">
-
 </head>
 <body>
   <header>
-    <div class="title-block">
-      <h1>grammar-to-marser</h1>
-      <p>Convert grammars to Marser Rust parsers</p>
+    <div class="header-brand">
+      <div class="title-block">
+        <h1>grammar-to-marser</h1>
+        <p id="mode-subtitle">Pest → Marser Rust converter</p>
+      </div>
+
+      <!-- Primary mode switch: segmented control -->
+      <div class="mode-switch" id="mode-switch" role="group" aria-label="Converter mode">
+        <button type="button" class="mode-btn active" id="mode-pest" data-syntax="pest">Pest → Marser</button>
+        <button type="button" class="mode-btn" id="mode-peg" data-syntax="peg">PEG → Marser</button>
+      </div>
+
+      <div class="header-links">
+        <button type="button" class="header-tour-btn" id="tour-btn" aria-label="Take the product tour">Tour</button>
+        <span class="header-links-sep" aria-hidden="true"></span>
+        <a href="https://github.com/ArneCode/marser" target="_blank" rel="noopener">Marser</a>
+        <a href="https://github.com/ArneCode/grammar-to-marser" target="_blank" rel="noopener">Source</a>
+      </div>
+
+      <span id="status" role="status" aria-live="polite">Loading…</span>
     </div>
 
-    <div class="toolbar">
-      <label>
+    <div class="header-toolbar">
+      <label for="examples-select">
         Example
         <select id="examples-select" aria-label="Load example grammar">
         </select>
       </label>
-      <div class="syntax-control">
-        <label for="input-syntax">Syntax</label>
-        <select id="input-syntax" aria-label="Grammar syntax">
-          <option value="pest">Pest</option>
-          <option value="peg">PEG</option>
-        </select>
-      </div>
 
       <div class="entry-rule-wrap">
         <label for="entry-rule">Entry rule</label>
@@ -40,102 +49,113 @@
           value=""
           placeholder="last rule"
           spellcheck="false"
-          aria-describedby="entry-rule-help entry-rule-hint"
+          aria-describedby="entry-rule-hint entry-rule-help"
         >
         <span id="entry-rule-hint" hidden></span>
-        <span id="entry-rule-help" class="field-hint">Like <code>Rule::expr</code> in Pest. Empty = last rule.</span>
+        <span id="entry-rule-help" class="field-hint">Empty = last rule</span>
         <datalist id="rule-names"></datalist>
       </div>
 
-      <button type="button" class="btn" id="open-file-btn">Open</button>
+      <span class="toolbar-sep" aria-hidden="true"></span>
+
+      <button type="button" class="btn" id="open-file-btn">Open file</button>
       <input type="file" id="file-input" accept=".pest,.peg,text/plain">
-
-      <div class="share-wrap">
-        <button type="button" class="btn" id="share-link-btn">Share link</button>
-        <span id="share-outdated" hidden>outdated</span>
-      </div>
     </div>
-
-    <div class="header-links">
-      <a href="https://docs.rs/marser" target="_blank" rel="noopener">Marser docs</a>
-      <a href="https://github.com/ArneCode/grammar-to-marser" target="_blank" rel="noopener">Source</a>
-      <a href="https://github.com/ArneCode/marser" target="_blank" rel="noopener">Marser</a>
-    </div>
-
-    <span id="status">Loading…</span>
   </header>
 
-  <section id="intro-section">
-    <div id="hero">
-      <p class="tagline">
-        Paste a <a href="https://pest.rs/book/" target="_blank" rel="noopener">Pest</a> or PEG grammar, get a runnable
-        <a href="https://docs.rs/marser" target="_blank" rel="noopener">Marser</a> parser in Rust — in your browser, no install.
-      </p>
-      <p>Output is a starter <code>grammar.rs</code> (or a full Cargo project zip) you can extend with real AST types.</p>
+  <!-- First-run onboarding modal -->
+  <div id="onboarding-modal" role="dialog" aria-modal="true" aria-labelledby="onboarding-title" hidden>
+    <div class="modal-backdrop" id="onboarding-backdrop"></div>
+    <div class="modal-box onboarding-box">
+      <h2 id="onboarding-title">grammar-to-marser</h2>
+      <p class="modal-tagline">Convert a <strong>Pest</strong> or <strong>PEG</strong> grammar into a ready-to-run Rust parser — generated in your browser using <a href="https://crates.io/crates/marser" target="_blank" rel="noopener">Marser</a>.</p>
+      <p class="modal-hint">Paste your grammar or try a built-in example. The Rust parser updates live as you type. When you're ready, download a Cargo project — the included README guides you through building an AST, adding error recovery, improving diagnostics, and debugging with the trace viewer.</p>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-primary" id="modal-continue">Open the editor</button>
+        <button type="button" class="btn" id="modal-tour">Take the tour</button>
+      </div>
+      <div class="modal-footer">
+        <label class="modal-skip-label">
+          <input type="checkbox" id="modal-skip-next" checked>
+          Don't show this again
+        </label>
+        <span class="modal-cli-hint">CLI: <code>cargo install grammar-to-marser</code></span>
+      </div>
     </div>
-    <div id="quick-start">
-      <ol>
-        <li><strong>Choose syntax</strong> (Pest or PEG), then try an example or open / drag a grammar file onto the left editor</li>
-        <li><strong>Edit the grammar</strong> — Rust on the right updates live</li>
-        <li><strong>Set entry rule</strong>, then copy, download, or <strong>share a link</strong></li>
-      </ol>
-      <p class="tips">
-        Drag-and-drop a <code>.pest</code> or <code>.peg</code> file onto the left pane.
-        <strong>Share link</strong> copies a URL with your grammar and entry rule embedded.
-        <strong>Download project</strong> gives a zip with <code>Cargo.toml</code>, <code>main.rs</code>, and README.
-      </p>
+  </div>
+
+  <!-- Download Cargo project dialog -->
+  <div id="download-dialog" role="dialog" aria-modal="true" aria-labelledby="download-dialog-title" hidden>
+    <div class="modal-backdrop" id="download-backdrop"></div>
+    <div class="modal-box download-box">
+      <h3 id="download-dialog-title">Download Cargo project</h3>
+      <p class="modal-desc">Creates a <code>.zip</code> with a complete, ready-to-build Rust project — your grammar file, the generated parser in <code>src/grammar.rs</code>, a <code>Cargo.toml</code>, and a README with next steps.</p>
+      <div class="download-name-row">
+        <label for="download-name-input">Project name</label>
+        <input type="text" id="download-name-input" spellcheck="false" autocomplete="off">
+      </div>
+      <div class="modal-actions download-actions">
+        <button type="button" class="btn btn-sm" id="download-cancel-btn">Cancel</button>
+        <button type="button" class="btn btn-sm btn-primary" id="download-confirm-btn">Download .zip</button>
+      </div>
     </div>
-    <div id="intro-actions">
-      <button type="button" class="btn btn-sm" id="intro-dismiss">Got it</button>
-      <button type="button" class="btn btn-sm" id="intro-tour-btn">Show tour</button>
-    </div>
-  </section>
+  </div>
 
   <div class="panes" id="panes">
-    <div class="pane" id="pest-pane">
+    <div class="pane" id="grammar-pane">
       <div class="pane-header">
         <div class="pane-header-left">
           <span>Grammar input</span>
-          <span id="pest-filename" hidden></span>
+          <span id="grammar-filename" hidden></span>
+          <span id="example-description" class="example-description" hidden></span>
         </div>
         <div class="pane-actions">
-          <button type="button" class="btn btn-sm" id="copy-pest-btn">Copy</button>
-          <a href="https://pest.rs/book/" target="_blank" rel="noopener" class="btn btn-sm">Pest book</a>
+          <button type="button" class="btn btn-sm" id="copy-grammar-btn">Copy</button>
         </div>
       </div>
-      <div id="pest-editor" class="editor-host"></div>
+      <div id="grammar-editor" class="editor-host" aria-label="Grammar input editor"></div>
     </div>
 
     <div id="pane-resizer" role="separator" aria-label="Resize panes" aria-orientation="vertical" tabindex="0"></div>
 
     <div class="pane" id="rust-pane">
       <div class="pane-header">
-        <span>Marser Rust output</span>
+        <div class="pane-header-left">
+          <span>Generated parser</span>
+        </div>
         <div class="pane-actions">
-          <label title="Include Pest rule names as comments in the generated Rust">
-            <input type="checkbox" id="emit-comments" checked>
-            Comments
-          </label>
-          <span class="option-with-help">
-            <label title="Add .trace() markers for use with marser-trace-viewer">
-              <input type="checkbox" id="emit-trace">
-              Trace
-            </label>
-            <a
-              href="https://docs.rs/marser/latest/marser/guide/tracing_and_debugging/index.html"
-              class="option-help"
-              target="_blank"
-              rel="noopener"
-              title="Tracing and debugging guide"
-              aria-label="Open Marser tracing guide"
-            >?</a>
-          </span>
-          <span class="pane-sep" aria-hidden="true"></span>
           <button type="button" class="btn btn-sm" id="copy-rust-btn" disabled>Copy</button>
-          <button type="button" class="btn btn-sm" id="download-project-btn" disabled>Download project</button>
+          <button
+            type="button"
+            class="btn btn-sm"
+            id="download-project-btn"
+            disabled
+            title="Convert a grammar to enable download"
+          >Download project</button>
+          <button type="button" class="btn btn-sm" id="share-link-btn" title="Copy a shareable link to the current grammar">Share</button>
         </div>
       </div>
-      <div id="rust-editor" class="editor-host"></div>
+      <!-- Output options: directly control what goes into the generated parser -->
+      <div class="pane-options-bar">
+        <label title="Include rule names as comments in the generated Rust">
+          <input type="checkbox" id="emit-comments" checked>
+          Rule comments
+        </label>
+        <span class="option-with-help">
+          <label>
+            <input type="checkbox" id="emit-trace">
+            Trace markers
+          </label>
+          <button
+            type="button"
+            class="option-help"
+            id="trace-help-btn"
+            aria-label="About trace markers"
+            title="What are trace markers?"
+          >?</button>
+        </span>
+      </div>
+      <div id="rust-editor" class="editor-host" aria-label="Generated Rust parser"></div>
     </div>
   </div>
 
@@ -144,33 +164,84 @@
       <span>Errors</span>
       <button type="button" class="btn btn-sm" id="copy-errors-btn" disabled>Copy errors</button>
     </div>
-    <ul id="error-list" hidden></ul>
+    <ul id="error-list" hidden aria-live="assertive" aria-label="Conversion errors"></ul>
   </div>
 
-  <details id="limitations-panel">
-    <summary>Supported features &amp; limitations (v1)</summary>
-    <div class="limitations-body">
-      <div>
-        <h3>Supported</h3>
-        <ul>
-          <li>Sequences, choices, repetition (<code>*</code>, <code>+</code>, <code>?</code>, bounds)</li>
-          <li>Modifiers (<code>@</code>, <code>$</code>, <code>!</code>, <code>_</code>)</li>
-          <li><code>WHITESPACE</code> / <code>COMMENT</code> implicit skipping</li>
-          <li>Lookahead (<code>&amp;</code>, <code>!</code>), case-insensitive strings</li>
-          <li>ASCII builtins, right recursion via <code>recursive</code></li>
-        </ul>
+  <details id="grammar-panel">
+    <summary>Grammar reference</summary>
+    <div class="grammar-panel-body">
+
+      <!-- Pest content (shown in Pest mode) -->
+      <div id="grammar-pest">
+        <div>
+          <h3>Supported</h3>
+          <ul>
+            <li>Sequences (<code>~</code>), choices (<code>|</code>), repetition (<code>*</code> <code>+</code> <code>?</code> bounds)</li>
+            <li>Rule modifiers — silent (<code>_</code>), atomic (<code>@</code> <code>$</code>), non-atomic (<code>!</code>)</li>
+            <li>Implicit whitespace / comment skipping via <code>WHITESPACE</code> and <code>COMMENT</code> rules</li>
+            <li>Lookaheads (<code>&amp;</code> positive, <code>!</code> negative), case-insensitive strings (<code>^"…"</code>)</li>
+            <li>Character ranges (<code>'a'..'z'</code>) and builtins: <code>ASCII_DIGIT</code>, <code>ASCII_ALPHA</code>, <code>ANY</code>, …</li>
+            <li>Right recursion via Marser's <code>recursive</code> helpers</li>
+          </ul>
+          <p class="grammar-ref-link"><a href="https://pest.rs/book/" target="_blank" rel="noopener">Pest book ↗</a></p>
+        </div>
+        <div>
+          <h3 class="grammar-not">Not yet supported</h3>
+          <ul>
+            <li>Stack operations: <code>PUSH</code>, <code>POP</code>, <code>PEEK</code>, <code>DROP</code></li>
+            <li>Left recursion</li>
+            <li>Mutual recursion groups larger than 12 rules</li>
+            <li>Pest-style <code>Pair</code> trees, spans, or <code>.memoized()</code></li>
+          </ul>
+          <p class="grammar-output-note">The generated parser returns a typed <code>Parsed&lt;'src&gt;</code> enum — one variant per rule. Replace the placeholder fields with your own AST types. <a href="https://docs.rs/marser" target="_blank" rel="noopener">Marser docs ↗</a></p>
+        </div>
       </div>
-      <div>
-        <h3 class="limit-not">Not yet (v1)</h3>
-        <ul>
-          <li>Stack ops (<code>PUSH</code>, <code>POP</code>, <code>PEEK</code>, …)</li>
-          <li>Left recursion</li>
-          <li>Pest-style <code>Pair</code> trees, spans, or memoization</li>
-          <li>Generated captures default to <code>()</code> — replace them with your AST/output types</li>
-        </ul>
+
+      <!-- PEG content (shown in PEG mode) -->
+      <div id="grammar-peg" hidden>
+        <div>
+          <h3>Supported</h3>
+          <ul>
+            <li>Sequences (juxtaposition), choices (<code>/</code>), repetition (<code>*</code> <code>+</code> <code>?</code>)</li>
+            <li>Character classes (<code>[a-z]</code>, <code>[A-Z0-9_]</code>) and string literals</li>
+            <li>Grouping with <code>()</code> and tagged binds (<code>name=rule</code>)</li>
+            <li>Lookaheads (<code>&amp;</code> positive, <code>!</code> negative)</li>
+          </ul>
+        </div>
+        <div>
+          <h3 class="grammar-not">Differences from Pest</h3>
+          <ul>
+            <li><strong>No implicit whitespace</strong> — add explicit whitespace rules where needed</li>
+            <li>Left recursion is not supported</li>
+            <li>Mutual recursion groups larger than 12 rules</li>
+          </ul>
+        </div>
       </div>
+
     </div>
   </details>
+
+  <!-- Trace markers info popup -->
+  <div id="trace-popup" role="dialog" aria-modal="true" aria-labelledby="trace-popup-title" hidden>
+    <div class="modal-backdrop" id="trace-popup-backdrop"></div>
+    <div class="modal-box trace-popup-box">
+      <h3 id="trace-popup-title">Trace markers</h3>
+      <p class="modal-desc">Adds <code>.trace()</code> calls to every rule in the generated parser. When you build and run with the <code>parser-trace</code> feature, each rule attempt and match result is recorded to a JSON file.</p>
+      <p class="modal-desc">Open that file in <strong>marser-trace-viewer</strong> — a terminal UI where you can step through every parsing decision and see exactly where your grammar matches, backtracks, or fails on a given input.</p>
+      <div class="trace-keybinds">
+        <span class="trace-keybind-row"><kbd>i</kbd> step into</span>
+        <span class="trace-keybind-row"><kbd>s</kbd> step over</span>
+        <span class="trace-keybind-row"><kbd>u</kbd> step out</span>
+        <span class="trace-keybind-row"><kbd>⌫</kbd> jump back</span>
+        <span class="trace-keybind-row"><kbd>q</kbd> quit</span>
+      </div>
+      <div class="trace-popup-footer">
+        <a href="https://docs.rs/marser/latest/marser/guide/tracing_and_debugging/index.html" target="_blank" rel="noopener" class="modal-link">Tracing guide ↗</a>
+        <a href="https://crates.io/crates/marser-trace-viewer" target="_blank" rel="noopener" class="modal-link">marser-trace-viewer ↗</a>
+        <button type="button" class="btn btn-sm" id="trace-popup-close">Close</button>
+      </div>
+    </div>
+  </div>
 
   <div id="tour-bar" hidden>
     <p id="tour-text"></p>

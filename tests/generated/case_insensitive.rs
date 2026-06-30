@@ -10,14 +10,14 @@ use marser::parser::{
     Parser,
 };
 
-// Pest `^"..."` literals match ASCII letters case-insensitively.
+// Case-insensitive string literals match ASCII letters without regard to case.
 fn ci_ch<'src, MRes>(c: char) -> impl Matcher<'src, &'src str, MRes> + Clone {
     one_of((c.to_ascii_lowercase(), c.to_ascii_uppercase()))
 }
 
-// Typed parse tree returned by `grammar()`. Each Pest rule becomes a variant;
-// `#field = ...` bindings become struct fields, and atomic (`@`) leaves store
-// their matched slice as `value`.
+// Typed parse tree returned by `grammar()`. Each grammar rule becomes a variant;
+// labeled bindings become struct fields, and leaf rules store their matched slice
+// as `value`.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Parsed<'src> {
     main {

@@ -204,7 +204,7 @@ other = { "world" }
         )
         .unwrap();
         assert!(code.contains("fn repeat_ws"));
-        assert!(!code.contains("// Pest inserts implicit whitespace"));
+        assert!(!code.contains("// Inserts whitespace between repetitions"));
     }
 
     #[test]
@@ -369,5 +369,22 @@ other = { "world" }
         )
         .unwrap();
         assert!(code.contains("// main <- #v=\"hello\""));
+    }
+
+    #[test]
+    fn peg_emit_comments_uses_syntax_neutral_text() {
+        let src = r#"main <- #v="hello""#;
+        let code = convert_source(
+            src,
+            InputSyntax::Peg,
+            &ConvertOptions {
+                entry_rule: "main".to_string(),
+                emit_comments: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert!(code.contains("Each grammar rule becomes a variant"));
+        assert!(!code.contains("Pest"));
     }
 }
