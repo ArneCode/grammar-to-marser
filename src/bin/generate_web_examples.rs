@@ -100,11 +100,59 @@ fn main() {
         );
 
         out.push_str(&format!(
-            "  {}: {{\n    label: {},\n    description: {},\n    entryRule: {},\n    pest: `{}`,\n  }},\n",
+            "  {}: {{\n    syntax: \"pest\",\n    label: {},\n    description: {},\n    entryRule: {},\n    pest: `{}`,\n  }},\n",
             web.key,
             escape_js_string(&web.label),
             escape_js_string(&web.description),
             escape_js_string(&fixture.entry),
+            escape_js_template(&pest),
+        ));
+    }
+
+    struct PegExample {
+        key: &'static str,
+        label: &'static str,
+        description: &'static str,
+        entry_rule: &'static str,
+        source: &'static str,
+    }
+
+    let peg_examples = [
+        PegExample {
+            key: "peg_hello",
+            label: "PEG: hello world",
+            description: "Minimal PEG rule with <- and string literal.",
+            entry_rule: "main",
+            source: "main <- \"hello\"",
+        },
+        PegExample {
+            key: "peg_calc",
+            label: "PEG: calculator",
+            description: "Choice / sequence, repetition, grouping. (No implicit whitespace.)",
+            entry_rule: "expr",
+            source: "expr <- term ((\"+\" / \"-\") term)*\nterm <- factor ((\"*\" / \"/\") factor)*\nfactor <- number / \"(\" expr \")\"\nnumber <- [0-9]+",
+        },
+        PegExample {
+            key: "peg_kv",
+            label: "PEG: key/value list",
+            description: "Tagged binds (name=value), comma-separated list.",
+            entry_rule: "main",
+            source: "main <- item (\",\" item)*\nitem <- name=ident \"=\" value=number\nident <- [A-Za-z_][A-Za-z0-9_]*\nnumber <- [0-9]+",
+        },
+    ];
+
+    for peg in &peg_examples {
+        let pest = format!(
+            "{}{}",
+            comment_header(peg.label, peg.description, peg.entry_rule, &[]),
+            peg.source
+        );
+        out.push_str(&format!(
+            "  {}: {{\n    syntax: \"peg\",\n    label: {},\n    description: {},\n    entryRule: {},\n    pest: `{}`,\n  }},\n",
+            peg.key,
+            escape_js_string(peg.label),
+            escape_js_string(peg.description),
+            escape_js_string(peg.entry_rule),
             escape_js_template(&pest),
         ));
     }
@@ -117,7 +165,7 @@ fn main() {
         .map(|web| web.key.as_str())
         .unwrap_or("simple");
     out.push_str(&format!(
-        "export const DEFAULT_EXAMPLE_KEY = {default_key:?};\nexport const DEFAULT_PEST = EXAMPLES[DEFAULT_EXAMPLE_KEY].pest;\n"
+        "export const DEFAULT_EXAMPLE_KEY = {default_key:?};\nexport const DEFAULT_PEST = EXAMPLES[DEFAULT_EXAMPLE_KEY].pest;\nexport const DEFAULT_PEG = EXAMPLES[\"peg_hello\"].pest;\n"
     ));
 
     let out_path = root.join("web/src/examples.js");

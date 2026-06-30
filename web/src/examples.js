@@ -2,6 +2,7 @@
 
 export const EXAMPLES = {
   simple: {
+    syntax: "pest",
     label: "Key/value config",
     description: "Comments, whitespace, identifiers, and SOI/EOI.",
     entryRule: "main",
@@ -21,6 +22,7 @@ number = @{ ASCII_DIGIT+ }
 `,
   },
   calc: {
+    syntax: "pest",
     label: "Calculator",
     description: "Arithmetic with precedence and recursion.",
     entryRule: "expr",
@@ -36,6 +38,7 @@ WHITESPACE = _{ " " | "\\t" }
 `,
   },
   ranges: {
+    syntax: "pest",
     label: "Hex color",
     description: "Character ranges like '0'..'9' and bounded repetition.",
     entryRule: "main",
@@ -50,6 +53,7 @@ hex_digit = _{ '0'..'9' | 'a'..'f' | 'A'..'F' }
 `,
   },
   case_insensitive: {
+    syntax: "pest",
     label: "SQL-ish query",
     description: "Case-insensitive string literals with ^\"select\".",
     entryRule: "main",
@@ -63,6 +67,7 @@ ident = @{ ("_" | ASCII_ALPHA) ~ ("_" | ASCII_ALPHANUMERIC)* }
 `,
   },
   lookahead: {
+    syntax: "pest",
     label: "Lookahead sentinel",
     description: "Negative lookahead !\"end\" before a closing sentinel.",
     entryRule: "main",
@@ -75,7 +80,44 @@ main = { SOI ~ #id = ident ~ #prefix = (!"end" ~ ANY)* ~ "end" ~ EOI }
 ident = @{ ("_" | ASCII_ALPHA) ~ ("_" | ASCII_ALPHANUMERIC)* }
 `,
   },
+  peg_hello: {
+    syntax: "peg",
+    label: "PEG: hello world",
+    description: "Minimal PEG rule with <- and string literal.",
+    entryRule: "main",
+    pest: `// PEG: hello world example.
+// Minimal PEG rule with <- and string literal.
+// Entry rule: main
+main <- "hello"`,
+  },
+  peg_calc: {
+    syntax: "peg",
+    label: "PEG: calculator",
+    description: "Choice / sequence, repetition, grouping. (No implicit whitespace.)",
+    entryRule: "expr",
+    pest: `// PEG: calculator example.
+// Choice / sequence, repetition, grouping. (No implicit whitespace.)
+// Entry rule: expr
+expr <- term (("+" / "-") term)*
+term <- factor (("*" / "/") factor)*
+factor <- number / "(" expr ")"
+number <- [0-9]+`,
+  },
+  peg_kv: {
+    syntax: "peg",
+    label: "PEG: key/value list",
+    description: "Tagged binds (name=value), comma-separated list.",
+    entryRule: "main",
+    pest: `// PEG: key/value list example.
+// Tagged binds (name=value), comma-separated list.
+// Entry rule: main
+main <- item ("," item)*
+item <- name=ident "=" value=number
+ident <- [A-Za-z_][A-Za-z0-9_]*
+number <- [0-9]+`,
+  },
 };
 
 export const DEFAULT_EXAMPLE_KEY = "simple";
 export const DEFAULT_PEST = EXAMPLES[DEFAULT_EXAMPLE_KEY].pest;
+export const DEFAULT_PEG = EXAMPLES["peg_hello"].pest;
