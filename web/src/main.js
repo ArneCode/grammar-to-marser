@@ -115,6 +115,13 @@ function defaultEntryForSyntax(syntax) {
   return "";
 }
 
+function defaultExampleKeyForSyntax(syntax) {
+  for (const [key, ex] of Object.entries(EXAMPLES)) {
+    if (ex.syntax === syntax) return key;
+  }
+  return "";
+}
+
 const entryRuleEl = document.getElementById("entry-rule");
 const examplesSelect = document.getElementById("examples-select");
 const emitCommentsEl = document.getElementById("emit-comments");
@@ -232,6 +239,24 @@ function clearActiveExample() {
     examplesSelect.value = "";
   }
   setExampleDescription(null);
+}
+
+function loadExample(key, { focusEditor = false } = {}) {
+  const ex = EXAMPLES[key];
+  if (!ex) return;
+  setActiveExample(key);
+  setEditorContent(grammarEditor, ex.pest);
+  save(sourceKeyForSyntax(getSyntax()), ex.pest);
+  if (entryRuleEl) {
+    entryRuleEl.value = ex.entryRule;
+    save(entryKeyForSyntax(getSyntax()), ex.entryRule);
+  }
+  setGrammarFilename(null);
+  setExampleDescription(ex.description ?? null);
+  scheduleConvert();
+  if (focusEditor) {
+    requestAnimationFrame(() => grammarEditor.focus());
+  }
 }
 
 // ── Init from saved/shared state ──
@@ -469,17 +494,7 @@ examplesSelect?.addEventListener("change", () => {
     clearActiveExample();
     return;
   }
-  const ex = EXAMPLES[key];
-  setActiveExample(key);
-  setEditorContent(grammarEditor, ex.pest);
-  save(sourceKeyForSyntax(getSyntax()), ex.pest);
-  if (entryRuleEl) {
-    entryRuleEl.value = ex.entryRule;
-    save(entryKeyForSyntax(getSyntax()), ex.entryRule);
-  }
-  setGrammarFilename(null);
-  setExampleDescription(ex.description ?? null);
-  scheduleConvert();
+  loadExample(key);
 });
 
 document.getElementById("copy-grammar-btn")?.addEventListener("click", (e) => {
@@ -537,7 +552,16 @@ function onResize() {
 
 window.addEventListener("resize", onResize);
 initPaneResizer(onResize);
-initOnboarding();
+initOnboarding({
+  onTryExample: () => {
+    const key = defaultExampleKeyForSyntax(getSyntax());
+    if (key) {
+      loadExample(key, { focusEditor: true });
+    } else {
+      requestAnimationFrame(() => grammarEditor.focus());
+    }
+  },
+});
 requestAnimationFrame(onResize);
 
 async function initWasm() {

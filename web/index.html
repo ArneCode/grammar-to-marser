@@ -64,22 +64,33 @@
   </header>
 
   <!-- First-run onboarding modal -->
-  <div id="onboarding-modal" role="dialog" aria-modal="true" aria-labelledby="onboarding-title" hidden>
+  <div
+    id="onboarding-modal"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="onboarding-title"
+    aria-describedby="onboarding-desc"
+    hidden
+  >
     <div class="modal-backdrop" id="onboarding-backdrop"></div>
-    <div class="modal-box onboarding-box">
-      <h2 id="onboarding-title">grammar-to-marser</h2>
-      <p class="modal-tagline">Convert a <strong>Pest</strong> or <strong>PEG</strong> grammar into a ready-to-run Rust parser — generated in your browser using <a href="https://crates.io/crates/marser" target="_blank" rel="noopener">Marser</a>.</p>
-      <p class="modal-hint">Paste your grammar or try a built-in example. The Rust parser updates live as you type. When you're ready, download a Cargo project — the included README guides you through building an AST, adding error recovery, improving diagnostics, and debugging with the trace viewer.</p>
+    <div class="modal-box onboarding-box" tabindex="-1">
+      <h2 id="onboarding-title">Start with a grammar example</h2>
+      <p class="modal-tagline" id="onboarding-desc">Convert a <strong>Pest</strong> or <strong>PEG</strong> grammar into a ready-to-run Rust parser in your browser using <a href="https://github.com/ArneCode/marser" target="_blank" rel="noopener">Marser</a>.</p>
+      <ul class="modal-list">
+        <li>Pick <strong>Pest</strong> or <strong>PEG</strong> at the top.</li>
+        <li>Paste your own grammar or load an example to see live Rust output.</li>
+        <li>When it looks right, download a Cargo project with the generated parser.</li>
+      </ul>
+      <p class="modal-hint">The downloaded project includes a README with next steps like AST shaping, error recovery, diagnostics, and tracing.</p>
       <div class="modal-actions">
-        <button type="button" class="btn btn-primary" id="modal-continue">Open the editor</button>
+        <button type="button" class="btn btn-primary" id="modal-try-example">Try an example</button>
         <button type="button" class="btn" id="modal-tour">Take the tour</button>
       </div>
       <div class="modal-footer">
         <label class="modal-skip-label">
-          <input type="checkbox" id="modal-skip-next" checked>
+          <input type="checkbox" id="modal-skip-next">
           Don't show this again
         </label>
-        <span class="modal-cli-hint">CLI: <code>cargo install grammar-to-marser</code></span>
       </div>
     </div>
   </div>
