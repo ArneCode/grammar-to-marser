@@ -625,7 +625,6 @@
     </div>
 
     <div class="header-links">
-      <a href="https://pest.rs/book/" target="_blank" rel="noopener">Pest book</a>
       <a href="https://docs.rs/marser" target="_blank" rel="noopener">Marser docs</a>
       <a href="https://github.com/ArneCode/pest-to-marser" target="_blank" rel="noopener">Source</a>
       <a href="https://github.com/ArneCode/marser" target="_blank" rel="noopener">Marser</a>
@@ -669,6 +668,7 @@
         </div>
         <div class="pane-actions">
           <button type="button" class="btn btn-sm" id="copy-pest-btn">Copy</button>
+          <a href="https://pest.rs/book/" target="_blank" rel="noopener" class="btn btn-sm">Pest book</a>
         </div>
       </div>
       <div id="pest-editor" class="editor-host"></div>
@@ -700,7 +700,6 @@
           </span>
           <span class="pane-sep" aria-hidden="true"></span>
           <button type="button" class="btn btn-sm" id="copy-rust-btn" disabled>Copy</button>
-          <button type="button" class="btn btn-sm" id="download-rs-btn" disabled>Download .rs</button>
           <button type="button" class="btn btn-sm" id="download-project-btn" disabled>Download project</button>
         </div>
       </div>
@@ -735,7 +734,7 @@
           <li>Stack ops (<code>PUSH</code>, <code>POP</code>, <code>PEEK</code>, …)</li>
           <li>Left recursion</li>
           <li>Pest-style <code>Pair</code> trees, spans, or memoization</li>
-          <li>Output is <code>()</code> everywhere — extend with Marser <code>capture!</code> / <code>bind!</code></li>
+          <li>Generated captures default to <code>()</code> — replace them with your AST/output types</li>
         </ul>
       </div>
     </div>

@@ -5,7 +5,7 @@ const setParseDiagnosticEffect = StateEffect.define();
 
 const parseDiagnosticField = StateField.define({
   create() {
-    return null;
+    return [];
   },
   update(value, tr) {
     for (const effect of tr.effects) {
@@ -27,7 +27,27 @@ function trailingInputOffset(source, errorMessage) {
   return { from: offset, to: source.length };
 }
 
-function diagnosticRange(diagnostic, source) {
+function unsupportedKeyword(errorMessage) {
+  const match = /\b(PUSH_LITERAL|PUSH|POP_ALL|POP|PEEK_ALL|PEEK|DROP)\b/.exec(errorMessage);
+  return match?.[1] ?? null;
+}
+
+function findKeywordRange(source, keyword, usedRanges = []) {
+  if (!keyword) return null;
+  const re = new RegExp(`\\b${keyword}\\b`, "g");
+  for (const match of source.matchAll(re)) {
+    const from = match.index ?? -1;
+    if (from < 0) continue;
+    const to = from + keyword.length;
+    const alreadyUsed = usedRanges.some((range) => range.from === from && range.to === to);
+    if (!alreadyUsed) {
+      return { from, to };
+    }
+  }
+  return null;
+}
+
+function diagnosticRange(diagnostic, source, usedRanges = []) {
   if (
     diagnostic &&
     typeof diagnostic.from === "number" &&
@@ -37,24 +57,35 @@ function diagnosticRange(diagnostic, source) {
     const to = diagnostic.to > from ? diagnostic.to : Math.min(from + 1, source.length);
     return { from, to };
   }
-  return trailingInputOffset(source, diagnostic?.message ?? "");
+  const message = diagnostic?.message ?? "";
+  const unsupported = unsupportedKeyword(message);
+  if (unsupported) {
+    const range = findKeywordRange(source, unsupported, usedRanges);
+    if (range) return range;
+  }
+  return trailingInputOffset(source, message);
 }
 
 function createParseDiagnosticExtension(getSource) {
   return linter((view) => {
-    const diagnostic = view.state.field(parseDiagnosticField, false);
-    if (!diagnostic?.message) return [];
+    const diagnostics = view.state.field(parseDiagnosticField, false) ?? [];
+    if (diagnostics.length === 0) return [];
     const source = getSource();
-    const pos = diagnosticRange(diagnostic, source);
-    if (!pos) return [];
-    return [
-      {
-        from: pos.from,
-        to: pos.to,
-        severity: "error",
-        message: diagnostic.message,
-      },
-    ];
+    const usedRanges = [];
+    return diagnostics
+      .filter((diagnostic) => diagnostic?.message)
+      .map((diagnostic) => {
+        const pos = diagnosticRange(diagnostic, source, usedRanges);
+        if (!pos) return null;
+        usedRanges.push(pos);
+        return {
+          from: pos.from,
+          to: pos.to,
+          severity: "error",
+          message: diagnostic.message,
+        };
+      })
+      .filter(Boolean);
   });
 }
 
@@ -63,11 +94,19 @@ export function parseDiagnosticExtensions(getSource) {
 }
 
 export function setParseDiagnostic(view, diagnostic) {
-  let value = null;
-  if (typeof diagnostic === "string") {
-    value = { message: diagnostic };
+  let value = [];
+  if (Array.isArray(diagnostic)) {
+    value = diagnostic
+      .filter((item) => item && typeof item === "object" && typeof item.message === "string")
+      .map((item) => ({
+        message: item.message,
+        from: typeof item.from === "number" ? item.from : undefined,
+        to: typeof item.to === "number" ? item.to : undefined,
+      }));
+  } else if (typeof diagnostic === "string") {
+    value = [{ message: diagnostic }];
   } else if (diagnostic?.message) {
-    value = diagnostic;
+    value = [diagnostic];
   }
   view.dispatch({
     effects: setParseDiagnosticEffect.of(value),
@@ -333,7 +372,7 @@ export function updateEntryRuleHint(entryRule, ruleNames) {
   }
 }
 
-export function renderErrors(errors) {
+export function renderErrors(errors, onErrorClick = null) {
   const list = document.getElementById("error-list");
   const copyBtn = document.getElementById("copy-errors-btn");
   if (!list) return;
@@ -347,9 +386,21 @@ export function renderErrors(errors) {
 
   list.hidden = false;
   if (copyBtn) copyBtn.disabled = false;
-  for (const err of errors) {
+  for (const [index, err] of (errors || []).entries()) {
     const li = document.createElement("li");
     li.textContent = typeof err === "string" ? err : err.message;
+    if (typeof onErrorClick === "function") {
+      li.style.cursor = "pointer";
+      li.tabIndex = 0;
+      li.title = "Jump to error location";
+      li.addEventListener("click", () => onErrorClick(index, err));
+      li.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onErrorClick(index, err);
+        }
+      });
+    }
     list.appendChild(li);
   }
 }

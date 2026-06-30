@@ -7,7 +7,6 @@ import {
 import { EXAMPLES, DEFAULT_PEST, DEFAULT_EXAMPLE_KEY } from "./examples.js";
 import {
   copyText,
-  downloadGrammarRs,
   downloadProjectZip,
   copyShareLink,
   initFileImport,
@@ -160,11 +159,9 @@ function getEmitTrace() {
 function updateRustPane() {
   setEditorContent(rustEditor, lastRawOutput);
   const copyRustBtn = document.getElementById("copy-rust-btn");
-  const downloadRsBtn = document.getElementById("download-rs-btn");
   const downloadProjectBtn = document.getElementById("download-project-btn");
   const disabled = !lastRawOutput || lastErrors.length > 0;
   if (copyRustBtn) copyRustBtn.disabled = disabled;
-  if (downloadRsBtn) downloadRsBtn.disabled = disabled;
   if (downloadProjectBtn) downloadProjectBtn.disabled = disabled;
 }
 
@@ -201,6 +198,36 @@ function wasmErrors(err) {
     if (typeof err.message === "string") return [{ message: err.message }];
   }
   return [{ message: String(err) }];
+}
+
+function trailingInputOffset(source, errorMessage) {
+  const match = /trailing input: (\d+) byte\(s\) remain unparsed/.exec(errorMessage);
+  if (!match) return null;
+  const remaining = parseInt(match[1], 10);
+  if (Number.isNaN(remaining)) return null;
+  const offset = source.length - remaining;
+  if (offset < 0 || offset > source.length) return null;
+  return { from: offset, to: source.length };
+}
+
+function errorRange(error, source) {
+  if (error && typeof error.from === "number" && typeof error.to === "number") {
+    const from = error.from;
+    const to = error.to > from ? error.to : Math.min(from + 1, source.length);
+    return { from, to };
+  }
+  return trailingInputOffset(source, error?.message ?? "");
+}
+
+function focusError(error) {
+  const source = getPestSource();
+  const range = errorRange(error, source);
+  if (!range) return;
+  pestEditor.dispatch({
+    selection: { anchor: range.from, head: range.to },
+    scrollIntoView: true,
+  });
+  pestEditor.focus();
 }
 
 function refreshRules() {
@@ -242,12 +269,10 @@ function runConvert() {
     lastRawOutput = "";
     lastErrors = wasmErrors(err);
     setEditorContent(rustEditor, "");
-    renderErrors(lastErrors);
-    const diagnostic =
-      lastErrors.find(
-        (e) => typeof e.from === "number" && typeof e.to === "number",
-      ) ?? null;
-    setParseDiagnostic(pestEditor, diagnostic);
+    renderErrors(lastErrors, (_index, error) => {
+      focusError(error);
+    });
+    setParseDiagnostic(pestEditor, lastErrors);
     setStatus(`Error · ${Math.round(lastConvertMs)}ms`, "#f48771");
     updateRustPane();
   }
@@ -322,10 +347,6 @@ document.getElementById("copy-rust-btn")?.addEventListener("click", (e) => {
 
 document.getElementById("copy-errors-btn")?.addEventListener("click", (e) => {
   copyText(errorsAsText(lastErrors), e.currentTarget);
-});
-
-document.getElementById("download-rs-btn")?.addEventListener("click", () => {
-  downloadGrammarRs(rustEditor.state.doc.toString());
 });
 
 document.getElementById("download-project-btn")?.addEventListener("click", () => {
