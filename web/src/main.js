@@ -4,7 +4,7 @@ import {
   fitEditors,
   setEditorContent,
 } from "./editors.js";
-import { EXAMPLES, DEFAULT_PEST, DEFAULT_EXAMPLE_KEY } from "./examples.js";
+import { EXAMPLES, DEFAULT_PEST, DEFAULT_PEG, DEFAULT_EXAMPLE_KEY } from "./examples.js";
 import {
   copyText,
   downloadProjectZip,
@@ -27,10 +27,13 @@ import {
   parseDiagnosticExtensions,
 } from "./ui.js";
 
-const STORAGE_KEY_PEST = "pest-to-marser.pest";
-const STORAGE_KEY_ENTRY = "pest-to-marser.entry-rule";
-const STORAGE_KEY_EMIT_COMMENTS = "pest-to-marser.emit-comments";
-const STORAGE_KEY_EMIT_TRACE = "pest-to-marser.emit-trace";
+const STORAGE_KEY_PEST_SOURCE = "grammar-to-marser.pest.source";
+const STORAGE_KEY_PEG_SOURCE = "grammar-to-marser.peg.source";
+const STORAGE_KEY_PEST_ENTRY = "grammar-to-marser.pest.entry-rule";
+const STORAGE_KEY_PEG_ENTRY = "grammar-to-marser.peg.entry-rule";
+const STORAGE_KEY_EMIT_COMMENTS = "grammar-to-marser.emit-comments";
+const STORAGE_KEY_EMIT_TRACE = "grammar-to-marser.emit-trace";
+const STORAGE_KEY_SYNTAX = "grammar-to-marser.syntax";
 
 function loadSaved(key) {
   try {
@@ -61,10 +64,30 @@ function initialDoc(key, fallback) {
   return fallback;
 }
 
+function sourceKeyForSyntax(syntax) {
+  return syntax === "peg" ? STORAGE_KEY_PEG_SOURCE : STORAGE_KEY_PEST_SOURCE;
+}
+
+function entryKeyForSyntax(syntax) {
+  return syntax === "peg" ? STORAGE_KEY_PEG_ENTRY : STORAGE_KEY_PEST_ENTRY;
+}
+
+function defaultDocForSyntax(syntax) {
+  return syntax === "peg" ? DEFAULT_PEG : DEFAULT_PEST;
+}
+
+function defaultEntryForSyntax(syntax) {
+  for (const ex of Object.values(EXAMPLES)) {
+    if (ex.syntax === syntax) return ex.entryRule;
+  }
+  return "";
+}
+
 const entryRuleEl = document.getElementById("entry-rule");
 const examplesSelect = document.getElementById("examples-select");
 const emitCommentsEl = document.getElementById("emit-comments");
 const emitTraceEl = document.getElementById("emit-trace");
+const syntaxEl = document.getElementById("input-syntax");
 
 let debounceTimer = null;
 let convertFn = null;
@@ -76,10 +99,10 @@ let lastConvertMs = null;
 let ruleNames = [];
 let activeExampleKey = "";
 
-function findMatchingExample(pest, entryRule) {
+function findMatchingExample(pest, entryRule, syntax) {
   const entry = (entryRule ?? "").trim();
   for (const [key, ex] of Object.entries(EXAMPLES)) {
-    if (ex.pest === pest && ex.entryRule === entry) {
+    if (ex.syntax === syntax && ex.pest === pest && ex.entryRule === entry) {
       return key;
     }
   }
@@ -94,6 +117,7 @@ function populateExamplesSelect() {
   custom.textContent = "Custom grammar…";
   examplesSelect.appendChild(custom);
   for (const [key, ex] of Object.entries(EXAMPLES)) {
+    if (ex.syntax !== getSyntax()) continue;
     const opt = document.createElement("option");
     opt.value = key;
     opt.textContent = ex.label;
@@ -116,13 +140,21 @@ function clearActiveExample() {
 }
 
 const shared = decodeShareState(window.location.hash);
-const savedPest = shared?.pest ?? initialDoc(STORAGE_KEY_PEST, DEFAULT_PEST);
+const savedSyntax =
+  shared?.syntax ??
+  loadSaved(STORAGE_KEY_SYNTAX) ??
+  "pest";
+const defaultDoc = defaultDocForSyntax(savedSyntax);
+const savedPest =
+  shared?.pest ?? initialDoc(sourceKeyForSyntax(savedSyntax), defaultDoc);
+
 const savedEntry =
   shared?.entryRule ??
-  loadSaved(STORAGE_KEY_ENTRY) ??
+  loadSaved(entryKeyForSyntax(savedSyntax)) ??
+  defaultEntryForSyntax(savedSyntax) ??
   EXAMPLES[DEFAULT_EXAMPLE_KEY].entryRule;
 
-activeExampleKey = findMatchingExample(savedPest, savedEntry);
+activeExampleKey = findMatchingExample(savedPest, savedEntry, savedSyntax);
 populateExamplesSelect();
 if (examplesSelect && activeExampleKey) {
   examplesSelect.value = activeExampleKey;
@@ -140,8 +172,16 @@ if (emitTraceEl) {
   emitTraceEl.checked = loadBool(STORAGE_KEY_EMIT_TRACE, false);
 }
 
+if (syntaxEl) {
+  syntaxEl.value = savedSyntax;
+}
+
 function getPestSource() {
   return pestEditor.state.doc.toString();
+}
+
+function getSyntax() {
+  return syntaxEl?.value ?? "pest";
 }
 
 function getEntryRule() {
@@ -169,6 +209,7 @@ function markShareState() {
   const hash = currentShareHash({
     pest: getPestSource(),
     entryRule: getEntryRule(),
+    syntax: getSyntax(),
   });
   setShareOutdated(hash !== lastShareHash);
 }
@@ -233,7 +274,7 @@ function focusError(error) {
 function refreshRules() {
   if (!listRulesFn) return;
   try {
-    ruleNames = listRulesFn(getPestSource());
+    ruleNames = listRulesFn(getPestSource(), getSyntax());
     updateRuleDatalist(ruleNames);
     updateEntryRuleHint(getEntryRule(), ruleNames);
   } catch (err) {
@@ -255,7 +296,7 @@ function runConvert() {
 
   const t0 = performance.now();
   try {
-    const code = convertFn(source, entry, emitComments, emitTrace);
+    const code = convertFn(source, getSyntax(), entry, emitComments, emitTrace);
     lastConvertMs = performance.now() - t0;
     lastRawOutput = code;
     lastErrors = [];
@@ -283,7 +324,7 @@ const pestEditor = createPestEditor(
   document.getElementById("pest-editor"),
   savedPest,
   (text) => {
-    save(STORAGE_KEY_PEST, text);
+    save(sourceKeyForSyntax(getSyntax()), text);
     if (activeExampleKey) {
       const ex = EXAMPLES[activeExampleKey];
       if (!ex || text !== ex.pest) {
@@ -298,7 +339,7 @@ const pestEditor = createPestEditor(
 const rustEditor = createRustEditor(document.getElementById("rust-editor"));
 
 entryRuleEl?.addEventListener("input", () => {
-  save(STORAGE_KEY_ENTRY, entryRuleEl.value);
+  save(entryKeyForSyntax(getSyntax()), entryRuleEl.value);
   if (activeExampleKey) {
     const ex = EXAMPLES[activeExampleKey];
     if (!ex || ex.entryRule !== getEntryRule().trim()) {
@@ -319,6 +360,28 @@ emitTraceEl?.addEventListener("change", () => {
   scheduleConvert();
 });
 
+syntaxEl?.addEventListener("change", () => {
+  const targetSyntax = getSyntax();
+  save(STORAGE_KEY_SYNTAX, targetSyntax);
+  const nextSource =
+    loadSaved(sourceKeyForSyntax(targetSyntax)) ?? defaultDocForSyntax(targetSyntax);
+  const nextEntry =
+    loadSaved(entryKeyForSyntax(targetSyntax)) ?? defaultEntryForSyntax(targetSyntax);
+  setEditorContent(pestEditor, nextSource);
+  save(sourceKeyForSyntax(targetSyntax), nextSource);
+  if (entryRuleEl) {
+    entryRuleEl.value = nextEntry;
+    save(entryKeyForSyntax(targetSyntax), nextEntry);
+  }
+  activeExampleKey = findMatchingExample(nextSource, nextEntry, targetSyntax);
+  populateExamplesSelect();
+  if (examplesSelect) {
+    examplesSelect.value = activeExampleKey || "";
+  }
+  setPestFilename(null);
+  scheduleConvert();
+});
+
 examplesSelect?.addEventListener("change", () => {
   const key = examplesSelect.value;
   if (!key || !EXAMPLES[key]) {
@@ -328,10 +391,10 @@ examplesSelect?.addEventListener("change", () => {
   const ex = EXAMPLES[key];
   setActiveExample(key);
   setEditorContent(pestEditor, ex.pest);
-  save(STORAGE_KEY_PEST, ex.pest);
+  save(sourceKeyForSyntax(getSyntax()), ex.pest);
   if (entryRuleEl) {
     entryRuleEl.value = ex.entryRule;
-    save(STORAGE_KEY_ENTRY, ex.entryRule);
+    save(entryKeyForSyntax(getSyntax()), ex.entryRule);
   }
   setPestFilename(null);
   scheduleConvert();
@@ -355,18 +418,20 @@ document.getElementById("download-project-btn")?.addEventListener("click", () =>
     pestSource: getPestSource(),
     grammarRs: lastRawOutput,
     entryRule: getEntryRule(),
+    syntax: getSyntax(),
     emitTrace: getEmitTrace(),
   });
 });
 
 document.getElementById("share-link-btn")?.addEventListener("click", (e) => {
   copyShareLink(
-    { pest: getPestSource(), entryRule: getEntryRule() },
+    { pest: getPestSource(), entryRule: getEntryRule(), syntax: getSyntax() },
     e.currentTarget,
   ).then(() => {
     lastShareHash = currentShareHash({
       pest: getPestSource(),
       entryRule: getEntryRule(),
+      syntax: getSyntax(),
     });
     setShareOutdated(false);
   });
@@ -375,7 +440,7 @@ document.getElementById("share-link-btn")?.addEventListener("click", (e) => {
 initFileImport({
   onOpen: (text, filename) => {
     setEditorContent(pestEditor, text);
-    save(STORAGE_KEY_PEST, text);
+    save(sourceKeyForSyntax(getSyntax()), text);
     setPestFilename(filename);
     clearActiveExample();
     scheduleConvert();
@@ -396,11 +461,12 @@ async function initWasm() {
     const wasm = await import("./pkg/web.js");
     await wasm.default();
     convertFn = wasm.convert;
-    listRulesFn = wasm.list_rules;
+    listRulesFn = wasm.list_grammar_rules;
     setStatus("Ready", "#666");
     lastShareHash = currentShareHash({
       pest: getPestSource(),
       entryRule: getEntryRule(),
+      syntax: getSyntax(),
     });
     setShareOutdated(false);
     runConvert();

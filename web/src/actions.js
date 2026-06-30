@@ -3,7 +3,7 @@ import { cargoToml, mainRs, readme } from "./templates.js";
 import { shareUrl } from "./share.js";
 import { flashButton } from "./ui.js";
 
-const PROJECT_NAME_KEY = "pest-to-marser.project-name";
+const PROJECT_NAME_KEY = "grammar-to-marser.project-name";
 
 export async function copyText(text, button) {
   try {
@@ -30,9 +30,9 @@ export function downloadGrammarRs(code) {
 
 export function getProjectName() {
   try {
-    return localStorage.getItem(PROJECT_NAME_KEY) || "pest-parser";
+    return localStorage.getItem(PROJECT_NAME_KEY) || "grammar-parser";
   } catch {
-    return "pest-parser";
+    return "grammar-parser";
   }
 }
 
@@ -58,6 +58,7 @@ export async function downloadProjectZip({
   pestSource,
   grammarRs,
   entryRule,
+  syntax = "pest",
   emitTrace = false,
 }) {
   const projectName = promptProjectName();
@@ -66,7 +67,7 @@ export async function downloadProjectZip({
   const zip = new JSZip();
 
   zip.file("Cargo.toml", cargoToml(projectName, emitTrace));
-  zip.file("grammar.pest", pestSource);
+  zip.file(syntax === "peg" ? "grammar.peg" : "grammar.pest", pestSource);
   zip.file("README.md", readme(projectName, entryRule, emitTrace));
   zip.file("src/grammar.rs", grammarRs);
   zip.file("src/main.rs", mainRs(emitTrace));

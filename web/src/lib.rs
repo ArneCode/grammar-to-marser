@@ -1,5 +1,7 @@
+use grammar_to_marser::{
+    ConvertError, ConvertOptions, InputSyntax, convert_source, list_rules,
+};
 use js_sys::{Array, Object, Reflect};
-use pest_to_marser::{convert_pest_source, list_pest_rules, ConvertError, ConvertOptions};
 use wasm_bindgen::prelude::*;
 
 fn errors_to_js(errors: &[ConvertError]) -> JsValue {
@@ -26,11 +28,14 @@ fn errors_to_js(errors: &[ConvertError]) -> JsValue {
 
 #[wasm_bindgen]
 pub fn convert(
-    pest_source: &str,
+    grammar_source: &str,
+    syntax: &str,
     entry_rule: &str,
     emit_comments: bool,
     emit_trace: bool,
 ) -> Result<String, JsValue> {
+    let syntax = InputSyntax::parse(syntax)
+        .ok_or_else(|| JsValue::from_str("unknown syntax (expected pest or peg)"))?;
     let options = ConvertOptions {
         entry_rule: entry_rule.to_string(),
         function_name: "grammar".to_string(),
@@ -38,10 +43,12 @@ pub fn convert(
         emit_trace,
     };
 
-    convert_pest_source(pest_source, &options).map_err(|errors| errors_to_js(&errors))
+    convert_source(grammar_source, syntax, &options).map_err(|errors| errors_to_js(&errors))
 }
 
 #[wasm_bindgen]
-pub fn list_rules(pest_source: &str) -> Result<Vec<String>, JsValue> {
-    list_pest_rules(pest_source).map_err(|errors| errors_to_js(&errors))
+pub fn list_grammar_rules(grammar_source: &str, syntax: &str) -> Result<Vec<String>, JsValue> {
+    let syntax = InputSyntax::parse(syntax)
+        .ok_or_else(|| JsValue::from_str("unknown syntax (expected pest or peg)"))?;
+    list_rules(grammar_source, syntax).map_err(|errors| errors_to_js(&errors))
 }

@@ -124,11 +124,11 @@ function initIntro() {
   const tourBtn = document.getElementById("intro-tour-btn");
   if (!section || !dismiss) return;
 
-  const key = "pest-to-marser.intro-dismissed";
+  const key = "grammar-to-marser.intro-dismissed";
   try {
-    if (localStorage.getItem("pest-to-marser.onboarding-dismissed") === "1") {
+    if (localStorage.getItem("grammar-to-marser.onboarding-dismissed") === "1") {
       localStorage.setItem(key, "1");
-      localStorage.removeItem("pest-to-marser.onboarding-dismissed");
+      localStorage.removeItem("grammar-to-marser.onboarding-dismissed");
     }
   } catch {
     // ignore
@@ -217,7 +217,7 @@ function finishTour() {
   const bar = document.getElementById("tour-bar");
   if (bar) bar.hidden = true;
   try {
-    localStorage.setItem("pest-to-marser.tour-done", "1");
+    localStorage.setItem("grammar-to-marser.tour-done", "1");
   } catch {
     // ignore
   }
@@ -225,7 +225,7 @@ function finishTour() {
 
 function maybeStartTour() {
   try {
-    if (localStorage.getItem("pest-to-marser.tour-done") === "1") return;
+    if (localStorage.getItem("grammar-to-marser.tour-done") === "1") return;
   } catch {
     // ignore
   }
@@ -235,7 +235,7 @@ function maybeStartTour() {
 function startTour({ force = false } = {}) {
   if (!force) {
     try {
-      if (localStorage.getItem("pest-to-marser.tour-done") === "1") return;
+      if (localStorage.getItem("grammar-to-marser.tour-done") === "1") return;
     } catch {
       // ignore
     }
@@ -261,8 +261,8 @@ function initTour() {
   });
 
   try {
-    const introDismissed = localStorage.getItem("pest-to-marser.intro-dismissed") === "1";
-    const tourDone = localStorage.getItem("pest-to-marser.tour-done") === "1";
+    const introDismissed = localStorage.getItem("grammar-to-marser.intro-dismissed") === "1";
+    const tourDone = localStorage.getItem("grammar-to-marser.tour-done") === "1";
     if (introDismissed && !tourDone) {
       setTimeout(() => startTour(), 400);
     }
@@ -278,7 +278,7 @@ export function initPaneResizer(onResize) {
   const panes = document.getElementById("panes");
   if (!resizer || !pestPane || !rustPane || !panes) return;
 
-  const storageKey = "pest-to-marser.split-ratio";
+  const storageKey = "grammar-to-marser.split-ratio";
   const saved = parseFloat(localStorage.getItem(storageKey) || "0.5");
   if (!Number.isNaN(saved) && saved > 0.1 && saved < 0.9) {
     pestPane.style.flex = `${saved} 1 0`;
