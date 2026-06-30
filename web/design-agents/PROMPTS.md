@@ -2,7 +2,19 @@
 
 Launch **three agents in Multitask mode**, one prompt per agent. Each agent must read `web/DESIGN_BRIEF.md` first.
 
-Worktree paths (after running `./setup-design-worktrees.sh` from `web/`):
+## Before launching agents
+
+Worktrees must include the latest baseline (including the PEG build fix). From the main repo:
+
+```bash
+for wt in ../pest-to-marser-design-welcome ../pest-to-marser-design-playground ../pest-to-marser-design-clarity; do
+  git -C "$wt" merge main -m "sync: merge baseline fixes from main"
+done
+```
+
+Or recreate worktrees: remove the three `pest-to-marser-design-*` directories with `git worktree remove`, delete the `design/*` branches, and run `./web/setup-design-worktrees.sh` again from `main`.
+
+Worktree paths:
 
 | Branch | Worktree |
 |--------|----------|
