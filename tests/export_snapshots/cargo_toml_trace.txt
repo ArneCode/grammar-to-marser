@@ -1,0 +1,11 @@
+[package]
+name = "grammar-parser"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+default = []
+parser-trace = ["marser/parser-trace"]
+
+[dependencies]
+marser = { version = "0.2.2", features = ["annotate-snippets"] }

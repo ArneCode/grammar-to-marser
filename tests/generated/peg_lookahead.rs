@@ -21,6 +21,8 @@ pub enum Parsed<'src> {
     ident { value: &'src str },
 }
 
+// Returns a complete parser for this grammar.
+// Usage: grammar().parse_str(src)  →  Ok((Parsed, errors))
 pub fn grammar<'src>() -> impl Parser<'src, &'src str, Output = Parsed<'src>> + Clone {
     // ident <- ("_" / [a-zA-Z]) [a-zA-Z0-9_]*
     let ident = capture!(

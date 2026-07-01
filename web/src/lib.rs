@@ -1,5 +1,5 @@
 use grammar_to_marser::{
-    ConvertError, ConvertOptions, InputSyntax, convert_source, list_rules,
+    ConvertError, ConvertOptions, InputSyntax, convert_source, list_rules, suggest_sample_source,
 };
 use js_sys::{Array, Object, Reflect};
 use wasm_bindgen::prelude::*;
@@ -51,4 +51,15 @@ pub fn list_grammar_rules(grammar_source: &str, syntax: &str) -> Result<Vec<Stri
     let syntax = InputSyntax::parse(syntax)
         .ok_or_else(|| JsValue::from_str("unknown syntax (expected pest or peg)"))?;
     list_rules(grammar_source, syntax).map_err(|errors| errors_to_js(&errors))
+}
+
+#[wasm_bindgen]
+pub fn suggest_sample_input(
+    grammar_source: &str,
+    syntax: &str,
+    entry_rule: &str,
+) -> Result<Option<String>, JsValue> {
+    let syntax = InputSyntax::parse(syntax)
+        .ok_or_else(|| JsValue::from_str("unknown syntax (expected pest or peg)"))?;
+    suggest_sample_source(grammar_source, syntax, entry_rule).map_err(|errors| errors_to_js(&errors))
 }

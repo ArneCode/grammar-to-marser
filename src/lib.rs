@@ -2,17 +2,25 @@ mod ast;
 mod codegen;
 mod convert;
 mod error;
+mod export_templates;
 mod expr;
 mod grammar;
 mod normalize;
 mod output;
 mod peg;
 mod progress;
+mod sample;
 mod scc;
 mod specialize;
 mod syntax;
 mod trivia;
 mod validate;
+
+pub use export_templates::{
+    cargo_toml, default_sample_input, gitignore, lib_rs, main_rs, readme, rust_crate_ident,
+    MARSER_VERSION,
+};
+pub use sample::{suggest_sample_from_table, suggest_sample_source};
 
 pub use ast::*;
 pub use convert::{

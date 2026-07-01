@@ -19,10 +19,14 @@ pub enum Parsed<'src> {
     },
 }
 
+// Returns a complete parser for this grammar.
+// Usage: grammar().parse_str(src)  →  Ok((Parsed, errors))
 pub fn grammar<'src>() -> impl Parser<'src, &'src str, Output = Parsed<'src>> + Clone {
     // WHITESPACE = _{ " " }
     let WHITESPACE = ' ';
 
+    // Pest injects WHITESPACE (and COMMENT) between every `~` in non-atomic rules.
+    // ws.clone() appears between sequence elements throughout this file for that reason.
     let ws = many(
         WHITESPACE.clone()
     );

@@ -24,6 +24,8 @@ pub enum Parsed<'src> {
     },
 }
 
+// Returns a complete parser for this grammar.
+// Usage: grammar().parse_str(src)  →  Ok((Parsed, errors))
 pub fn grammar<'src>() -> impl Parser<'src, &'src str, Output = Parsed<'src>> + Clone {
     let ASCII_ALPHA = one_of(('a'..='z', 'A'..='Z'));
 
@@ -49,6 +51,8 @@ pub fn grammar<'src>() -> impl Parser<'src, &'src str, Output = Parsed<'src>> + 
     // WHITESPACE = _{ " " | tab }
     let WHITESPACE = one_of((' ', tab.clone()));
 
+    // Pest injects WHITESPACE (and COMMENT) between every `~` in non-atomic rules.
+    // ws.clone() appears between sequence elements throughout this file for that reason.
     let ws = many(
         WHITESPACE.clone()
     );

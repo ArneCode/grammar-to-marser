@@ -6,6 +6,7 @@ on:
     paths:
       - "src/**"
       - "tests/**"
+      - "web/**"
       - "Cargo.toml"
       - "Cargo.lock"
       - ".github/workflows/test.yml"
@@ -13,6 +14,7 @@ on:
     paths:
       - "src/**"
       - "tests/**"
+      - "web/**"
       - "Cargo.toml"
       - "Cargo.lock"
       - ".github/workflows/test.yml"

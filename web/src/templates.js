@@ -2,6 +2,15 @@ const MARSER_VERSION = "0.2.2";
 
 const MARSER_DEP = `marser = { version = "${MARSER_VERSION}", features = ["annotate-snippets"] }`;
 
+/** Rust crate identifier derived from a Cargo package name. */
+export function rustCrateIdent(packageName) {
+  let ident = packageName.replace(/-/g, "_");
+  if (/^\d/.test(ident)) {
+    ident = `_${ident}`;
+  }
+  return ident;
+}
+
 export function cargoToml(projectName, emitTrace = false) {
   if (!emitTrace) {
     return `[package]
@@ -28,63 +37,26 @@ ${MARSER_DEP}
 `;
 }
 
-export function mainRs(emitTrace = false) {
-  if (!emitTrace) {
-    return `use marser::parser::Parser;
-
-mod grammar;
-
-fn main() {
-    let input = std::io::read_to_string(std::io::stdin()).expect("failed to read stdin");
-    match grammar::grammar().parse_str(&input) {
-        Ok(_) => println!("OK"),
-        Err(err) => {
-            err.eprint("<stdin>", &input);
-            std::process::exit(1);
-        }
-    }
-}
-`;
-  }
-
-  return `use std::{env, fs, process};
-
-use marser::parser::Parser;
-#[cfg(feature = "parser-trace")]
-use marser::trace::TraceFormat;
-
-mod grammar;
-
-fn usage(program: &str) -> ! {
-    eprintln!(
-        "Usage: {program} <input-file> [--trace-file <path>]"
-    );
-    process::exit(2);
+export function libRs() {
+  return "pub mod grammar;\n";
 }
 
-fn main() {
-    let program = env::args().next().unwrap_or_else(|| "grammar-parser".to_string());
-    let mut args = env::args().skip(1);
-    let path = args.next().unwrap_or_else(|| usage(&program));
-    let mut trace_file = None;
+export function gitignore() {
+  return "/target\n";
+}
 
-    for arg in args {
-        if arg == "--trace-file" {
-            trace_file = Some(
-                args.next()
-                    .unwrap_or_else(|| usage(&program)),
-            );
-        } else {
-            usage(&program);
-        }
-    }
+export function defaultSampleInput() {
+  return "1";
+}
 
-    let input = fs::read_to_string(&path).unwrap_or_else(|err| {
-        eprintln!("failed to read {path}: {err}");
-        process::exit(1);
-    });
+export function mainRs(projectName, emitTrace = false) {
+  const crateIdent = rustCrateIdent(projectName);
+  const traceImport = emitTrace
+    ? '#[cfg(feature = "parser-trace")]\nuse marser::trace::TraceFormat;\n'
+    : "";
 
-    #[cfg(feature = "parser-trace")]
+  const parseBody = emitTrace
+    ? `    #[cfg(feature = "parser-trace")]
     {
         let parser = grammar::grammar();
         if let Some(trace_path) = trace_file {
@@ -93,12 +65,12 @@ fn main() {
                 &trace_path,
                 TraceFormat::Json,
             ) {
-                Ok(_) => {
+                Ok((parsed, _errors)) => {
                     eprintln!("trace written to {trace_path}");
-                    println!("OK");
+                    println!("{parsed:#?}");
                 }
                 Err(marser::ParseWithTraceToFileError::Parse(err)) => {
-                    err.eprint(&path, &input);
+                    err.eprint(&label, &input);
                     process::exit(1);
                 }
                 Err(marser::ParseWithTraceToFileError::Io(err)) => {
@@ -108,9 +80,9 @@ fn main() {
             }
         } else {
             match parser.parse_str_with_trace(&input) {
-                Ok((_, _errors, _trace)) => println!("OK"),
+                Ok((parsed, _errors, _trace)) => println!("{parsed:#?}"),
                 Err(err) => {
-                    err.eprint(&path, &input);
+                    err.eprint(&label, &input);
                     process::exit(1);
                 }
             }
@@ -119,16 +91,85 @@ fn main() {
 
     #[cfg(not(feature = "parser-trace"))]
     {
-        let _ = trace_file;
-        eprintln!("rebuild with --features parser-trace to collect parser traces");
+        if trace_file.is_some() {
+            eprintln!("rebuild with --features parser-trace to use --trace-file");
+            process::exit(2);
+        }
         match grammar::grammar().parse_str(&input) {
-            Ok(_) => println!("OK"),
+            Ok((parsed, _errors)) => println!("{parsed:#?}"),
             Err(err) => {
-                err.eprint(&path, &input);
+                err.eprint(&label, &input);
                 process::exit(1);
             }
         }
+    }`
+    : `    if trace_file.is_some() {
+        eprintln!("this project was generated without trace support");
+        process::exit(2);
     }
+
+    match grammar::grammar().parse_str(&input) {
+        Ok((parsed, _errors)) => println!("{parsed:#?}"),
+        Err(err) => {
+            err.eprint(&label, &input);
+            process::exit(1);
+        }
+    }`;
+
+  return `use std::{env, fs, process};
+
+use marser::parser::Parser;
+${traceImport}use ${crateIdent}::grammar;
+
+fn usage(program: &str) -> ! {
+    eprintln!("Usage: {program} <input-file> [--trace-file <path>]");
+    process::exit(2);
+}
+
+fn read_input(path: &str) -> (String, String) {
+    let input = fs::read_to_string(path).unwrap_or_else(|err| {
+        eprintln!("failed to read {path}: {err}");
+        process::exit(1);
+    });
+    (input, path.to_string())
+}
+
+fn main() {
+    let program = env::args()
+        .next()
+        .unwrap_or_else(|| "${projectName}".to_string());
+    let args: Vec<String> = env::args().skip(1).collect();
+
+    let mut input_path = None;
+    let mut trace_file = None;
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--trace-file" => {
+                i += 1;
+                trace_file = Some(
+                    args.get(i)
+                        .cloned()
+                        .unwrap_or_else(|| usage(&program)),
+                );
+                i += 1;
+            }
+            "--help" | "-h" => usage(&program),
+            arg if arg.starts_with('-') => usage(&program),
+            arg => {
+                if input_path.is_some() {
+                    usage(&program);
+                }
+                input_path = Some(arg.to_string());
+                i += 1;
+            }
+        }
+    }
+
+    let path = input_path.unwrap_or_else(|| usage(&program));
+    let (input, label) = read_input(&path);
+
+${parseBody}
 }
 `;
 }
@@ -140,18 +181,18 @@ export function readme(projectName, entryRule, emitTrace = false) {
 
 \`\`\`sh
 cargo build --features parser-trace
-cargo run --features parser-trace -- sample.txt
+cargo run --features parser-trace -- examples/sample.txt
 \`\`\`
 
-Pass an input file path. The parser prints \`OK\` on success.`
+Pass an input file path. On success the parser prints the parsed AST with \`Debug\` formatting.`
     : `## Build and run
 
 \`\`\`sh
 cargo build
-echo 'your input' | cargo run
+cargo run -- examples/sample.txt
 \`\`\`
 
-The parser accepts input on stdin and prints \`OK\` on success.`;
+Pass an input file path. On success the parser prints the parsed AST with \`Debug\` formatting.`;
 
   const tracingSection = emitTrace
     ? `
@@ -164,10 +205,10 @@ This project was generated with \`.trace()\` markers in \`src/grammar.rs\`. To r
 cargo install marser-trace-viewer
 
 # parse a file and write a trace
-cargo run --features parser-trace -- sample.txt --trace-file trace.json
+cargo run --features parser-trace -- examples/sample.txt --trace-file trace.json
 
 # open the trace (use the same input file for span preview)
-marser-trace-viewer --trace trace.json --source sample.txt
+marser-trace-viewer --trace trace.json --source examples/sample.txt
 \`\`\`
 
 Tracing adds runtime overhead; use \`parser-trace\` for debugging rather than production builds.
@@ -179,7 +220,7 @@ Tracing adds runtime overhead; use \`parser-trace\` for debugging rather than pr
 
 The generated parser returns a typed \`Parsed<'src>\` enum with one variant per rule. Typical follow-ups:
 
-1. **Build an AST** — \`src/grammar.rs\` already uses \`bind!\` for rule references. Change each \`capture!\` output from \`()\` to a real type and assemble values from those binds. See [Capture and Binds](https://docs.rs/marser/latest/marser/guide/capture_and_binds/index.html) and the [worked JSON example](https://docs.rs/marser/latest/marser/guide/worked_json_example/index.html).
+1. **Shape the AST** — the scaffold returns \`Parsed<'src>\` directly. You can rename variants/fields, change leaf values (e.g. parse numbers), or add a conversion step that maps \`Parsed<'src>\` into your own AST types. \`src/grammar.rs\` already uses \`bind!\` / \`bind_slice!\` for rule references and leaves. See [Capture and Binds](https://docs.rs/marser/latest/marser/guide/capture_and_binds/index.html) and the [worked JSON example](https://docs.rs/marser/latest/marser/guide/worked_json_example/index.html).
 2. **Improve diagnostics** — use \`.with_label(...)\` on rules, \`add_error_info\`, and \`annotate-snippets\` output (already enabled in \`Cargo.toml\`). See [Errors and Recovery](https://docs.rs/marser/latest/marser/guide/errors_and_recovery/index.html).
 3. **Recover from errors** — return partial results with \`recover_with\`, inline hints with \`try_insert_if_missing\` / \`unwanted\`, and commits with \`commit_on\` where backtracking should stop. Same guide: [Errors and Recovery](https://docs.rs/marser/latest/marser/guide/errors_and_recovery/index.html).
 4. **Refine the grammar** — whitespace, lists, and recursion recipes in [Common patterns](https://docs.rs/marser/latest/marser/guide/common_patterns/index.html).${emitTrace ? "" : "\n5. **Debug parsing** — re-generate with **Trace** enabled in grammar-to-marser, or add \`.trace()\` markers by hand. See [Tracing and Debugging](https://docs.rs/marser/latest/marser/guide/tracing_and_debugging/index.html)."}
@@ -196,5 +237,11 @@ Generated by [grammar-to-marser](https://github.com/ArneCode/grammar-to-marser).
 \`${entry}\`
 
 ${buildSection}
-${tracingSection}${nextStepsSection}`;
+${tracingSection}## Sample input
+
+The file \`examples/sample.txt\` is generated on a best-effort basis. For some grammars (for example ones that use lookahead) there may be **no** auto-generated sample, and the file may be empty.
+
+If \`cargo run -- examples/sample.txt\` fails, replace \`examples/sample.txt\` with input that matches the entry rule and run again.
+
+${nextStepsSection}`;
 }

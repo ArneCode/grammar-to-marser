@@ -1,0 +1,5 @@
+WHITESPACE = _{ " " }
+
+// Minimal sample should end with NEWLINE.
+main = @{ SOI ~ "a" ~ NEWLINE ~ EOI }
+

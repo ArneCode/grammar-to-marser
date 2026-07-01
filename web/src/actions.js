@@ -1,5 +1,11 @@
 import JSZip from "jszip";
-import { cargoToml, mainRs, readme } from "./templates.js";
+import {
+  cargoToml,
+  gitignore,
+  libRs,
+  mainRs,
+  readme,
+} from "./templates.js";
 import { shareUrl } from "./share.js";
 import { flashButton, setStatus } from "./ui.js";
 
@@ -51,16 +57,24 @@ export async function downloadProjectZip({
   syntax = "pest",
   emitTrace = false,
   projectName,
+  sampleInput,
 }) {
   const name = projectName ?? getProjectName();
+  // `sampleInput` may legitimately contain leading/trailing whitespace, or even be empty
+  // for grammars that accept empty input. If we can't generate a trustworthy sample,
+  // export an empty file instead of guessing.
+  const sample = typeof sampleInput === "string" ? sampleInput : "";
 
   const zip = new JSZip();
 
   zip.file("Cargo.toml", cargoToml(name, emitTrace));
   zip.file(syntax === "peg" ? "grammar.peg" : "grammar.pest", grammarSource);
   zip.file("README.md", readme(name, entryRule, emitTrace));
+  zip.file(".gitignore", gitignore());
+  zip.file("examples/sample.txt", sample);
+  zip.file("src/lib.rs", libRs());
   zip.file("src/grammar.rs", grammarRs);
-  zip.file("src/main.rs", mainRs(emitTrace));
+  zip.file("src/main.rs", mainRs(name, emitTrace));
 
   const blob = await zip.generateAsync({ type: "blob" });
   const url = URL.createObjectURL(blob);

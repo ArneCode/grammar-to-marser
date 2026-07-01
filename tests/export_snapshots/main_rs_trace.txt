@@ -1,0 +1,103 @@
+use std::{env, fs, process};
+
+use marser::parser::Parser;
+#[cfg(feature = "parser-trace")]
+use marser::trace::TraceFormat;
+use grammar_parser::grammar;
+
+fn usage(program: &str) -> ! {
+    eprintln!("Usage: {program} <input-file> [--trace-file <path>]");
+    process::exit(2);
+}
+
+fn read_input(path: &str) -> (String, String) {
+    let input = fs::read_to_string(path).unwrap_or_else(|err| {
+        eprintln!("failed to read {path}: {err}");
+        process::exit(1);
+    });
+    (input, path.to_string())
+}
+
+fn main() {
+    let program = env::args()
+        .next()
+        .unwrap_or_else(|| "grammar-parser".to_string());
+    let args: Vec<String> = env::args().skip(1).collect();
+
+    let mut input_path = None;
+    let mut trace_file = None;
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--trace-file" => {
+                i += 1;
+                trace_file = Some(
+                    args.get(i)
+                        .cloned()
+                        .unwrap_or_else(|| usage(&program)),
+                );
+                i += 1;
+            }
+            "--help" | "-h" => usage(&program),
+            arg if arg.starts_with('-') => usage(&program),
+            arg => {
+                if input_path.is_some() {
+                    usage(&program);
+                }
+                input_path = Some(arg.to_string());
+                i += 1;
+            }
+        }
+    }
+
+    let path = input_path.unwrap_or_else(|| usage(&program));
+    let (input, label) = read_input(&path);
+
+    #[cfg(feature = "parser-trace")]
+    {
+        let parser = grammar::grammar();
+        if let Some(trace_path) = trace_file {
+            match parser.parse_str_with_trace_to_file(
+                &input,
+                &trace_path,
+                TraceFormat::Json,
+            ) {
+                Ok((parsed, _errors)) => {
+                    eprintln!("trace written to {trace_path}");
+                    println!("{parsed:#?}");
+                }
+                Err(marser::ParseWithTraceToFileError::Parse(err)) => {
+                    err.eprint(&label, &input);
+                    process::exit(1);
+                }
+                Err(marser::ParseWithTraceToFileError::Io(err)) => {
+                    eprintln!("failed to write trace file '{trace_path}': {err}");
+                    process::exit(1);
+                }
+            }
+        } else {
+            match parser.parse_str_with_trace(&input) {
+                Ok((parsed, _errors, _trace)) => println!("{parsed:#?}"),
+                Err(err) => {
+                    err.eprint(&label, &input);
+                    process::exit(1);
+                }
+            }
+        }
+    }
+
+    #[cfg(not(feature = "parser-trace"))]
+    {
+        if trace_file.is_some() {
+            eprintln!("rebuild with --features parser-trace to use --trace-file");
+            process::exit(2);
+        }
+        match grammar::grammar().parse_str(&input) {
+            Ok((parsed, _errors)) => println!("{parsed:#?}"),
+            Err(err) => {
+                err.eprint(&label, &input);
+                process::exit(1);
+            }
+        }
+    }
+}

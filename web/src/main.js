@@ -130,6 +130,7 @@ const emitTraceEl = document.getElementById("emit-trace");
 let debounceTimer = null;
 let convertFn = null;
 let listRulesFn = null;
+let suggestSampleFn = null;
 let lastRawOutput = "";
 let lastErrors = [];
 let lastConvertMs = null;
@@ -314,6 +315,33 @@ function getEmitComments() {
 
 function getEmitTrace() {
   return emitTraceEl?.checked ?? false;
+}
+
+/** Sample input for the downloadable project, generated from the grammar IR when possible. */
+function getDownloadSampleInput() {
+  if (suggestSampleFn) {
+    try {
+      const sample = suggestSampleFn(getGrammarSource(), getSyntax(), getEntryRule());
+      // wasm-bindgen returns `undefined`/`null` for None; empty string is a valid sample.
+      if (sample !== undefined && sample !== null) {
+        return sample;
+      }
+    } catch {
+      // fall through to comment heuristic
+    }
+  }
+  const source = getGrammarSource();
+  for (const line of source.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith("// Try:")) continue;
+    const payload = trimmed.slice("// Try:".length).trim();
+    if (!payload) continue;
+    const first = payload.split(",")[0]?.trim();
+    if (first) {
+      return first.replace(/\\n/g, "\n").replace(/\\r/g, "\r");
+    }
+  }
+  return undefined;
 }
 
 function updateRustPane() {
@@ -520,6 +548,7 @@ initDownloadDialog({
       syntax: getSyntax(),
       emitTrace: getEmitTrace(),
       projectName,
+      sampleInput: getDownloadSampleInput(),
     });
   },
 });
@@ -570,6 +599,7 @@ async function initWasm() {
     await wasm.default();
     convertFn = wasm.convert;
     listRulesFn = wasm.list_grammar_rules;
+    suggestSampleFn = wasm.suggest_sample_input;
     setStatus("Ready", "#666");
     runConvert();
   } catch (err) {

@@ -1,0 +1,7 @@
+[package]
+name = "grammar-parser"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+marser = { version = "0.2.2", features = ["annotate-snippets"] }

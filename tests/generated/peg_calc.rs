@@ -26,6 +26,8 @@ pub enum Parsed<'src> {
     number { value: &'src str },
 }
 
+// Returns a complete parser for this grammar.
+// Usage: grammar().parse_str(src)  →  Ok((Parsed, errors))
 pub fn grammar<'src>() -> impl Parser<'src, &'src str, Output = Parsed<'src>> + Clone {
     // number <- [0-9]+
     let number = capture!(

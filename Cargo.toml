@@ -26,6 +26,7 @@ toml = "0.8"
 pest = "2.8"
 pest_derive = "2.8"
 proptest = "1"
+tempfile = "3"
 toml = "0.8"
 
 [[bin]]
@@ -35,3 +36,7 @@ path = "src/bin/update_test_fixtures.rs"
 [[bin]]
 name = "generate-web-examples"
 path = "src/bin/generate_web_examples.rs"
+
+[[bin]]
+name = "update-export-snapshots"
+path = "src/bin/update_export_snapshots.rs"

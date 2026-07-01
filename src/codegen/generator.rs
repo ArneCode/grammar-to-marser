@@ -370,6 +370,13 @@ impl<'a> Generator<'a> {
             );
         }
         out.push_str(&emit_parsed_enum(&self.table.rules, &self.matcher_only));
+        if self.options.emit_comments {
+            let fn_name = sanitize_ident(&self.options.function_name);
+            out.push_str(&format!(
+                "// Returns a complete parser for this grammar.\n\
+                 // Usage: {fn_name}().parse_str(src)  →  Ok((Parsed, errors))\n",
+            ));
+        }
         out.push_str(&format!(
             "pub fn {}<'src>() -> impl Parser<'src, &'src str, Output = Parsed<'src>> + Clone {{\n",
             sanitize_ident(&self.options.function_name)
@@ -545,6 +552,12 @@ impl<'a> Generator<'a> {
             (false, false) => unreachable!(),
         };
         let formatted = format_expr_str(&inner, 8)?;
+        if self.options.emit_comments {
+            out.push_str(
+                "    // Pest injects WHITESPACE (and COMMENT) between every `~` in non-atomic rules.\n\
+                 \x20   // ws.clone() appears between sequence elements throughout this file for that reason.\n",
+            );
+        }
         out.push_str(&format!("    let ws = many(\n{formatted}\n    );\n\n"));
         Ok(())
     }
